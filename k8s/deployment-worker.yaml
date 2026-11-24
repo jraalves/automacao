@@ -1,0 +1,158 @@
+# Demonstração — workers de extração e publicação.
+#
+# Por que um Deployment separado: baixar arquivo, rodar OCR/parse, validar schema
+# e publicar no repositório de destino é lento e come CPU. Misturar isso com a API
+# de busca degrada o p95 do usuário. ADR 0002.
+#
+#   kubectl apply -f k8s/deployment-worker.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: automacao-worker
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: automacao-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: automacao-fiscal
+    team.sre.io/observabilidade: habilitado
+spec:
+  replicas: 4
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: automacao-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: automacao-worker
+        app.kubernetes.io/component: worker
+      annotations:
+        prometheus.io/scrape: "false"
+        demonstracao/geracao: sintetica
+    spec:
+      serviceAccountName: automacao-worker
+      automountServiceAccountToken: false
+      # Um arquivo em meio à publicação não pode ser cortado no meio: o pod tem
+      # tempo de terminar o item atual da fila e fazer checkpoint.
+      terminationGracePeriodSeconds: 300
+      priorityClassName: system-cluster-critical
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10002
+        runAsGroup: 10002
+        fsGroup: 10002
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: automacao-worker
+      containers:
+        - name: worker
+          image: registry.example.com/automacao/worker:1.4.2-SINT
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "automacao.trabalhador"]
+          ports:
+            # Mesma convenção da API: o exporter OTLP publica em 9464, e o
+            # Service headless automacao-worker (service-api.yaml) aponta o
+            # targetPort "metrics" para cá. Sem este port declarado o Service
+            # não resolve o nome e o Collector não rasparia nada.
+            - name: metrics
+              containerPort: 9464
+          env:
+            - name: AMBIENTE
+              value: "demonstracao"
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: automacao-demo-credenciais
+                  key: mongo_uri
+            - name: REPOSITORIO_CREDENCIAIS_ARQUIVO
+              value: /etc/automacao/credenciais/repositorio.json
+            - name: LOTE_MAXIMO
+              value: "20"
+            - name: TEMPO_LIMITE_EXTRACAO_SEG
+              value: "120"
+            - name: TENTATIVAS_MAXIMAS
+              value: "4"
+            - name: BACKOFF_BASE_SEG
+              value: "15"
+            - name: DIR_TRABALHO
+              value: /trabalho
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "automacao-worker"
+          # O worker não serve HTTP: prontidão é "ainda consigo puxar trabalho".
+          readinessProbe:
+            exec:
+              command: ["python", "-m", "automacao.verificacao", "prontidao"]
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["python", "-m", "automacao.verificacao", "coracao"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                # Drena a fila local antes de sair; o sinal de término vem depois.
+                command: ["python", "-m", "automacao.trabalhador", "--parar-com-graca"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # OCR e descompactação escrevem arquivos temporários: só um volume
+            # dedicado tem escrita, e ele é efêmero.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Credencial do conector montada SOMENTE leitura, sem execução, modo
+            # 0400. É a decisão documentada em docs/decisoes/ e no README.
+            - name: credenciais-repositorio
+              mountPath: /etc/automacao/credenciais
+              readOnly: true
+            - name: trabalho
+              mountPath: /trabalho
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: credenciais-repositorio
+          secret:
+            secretName: automacao-repositorio-credenciais
+            defaultMode: 0400
+            optional: false
+        - name: trabalho
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: automacao-worker
+  namespace: automacao-demo
+  automountServiceAccountToken: false

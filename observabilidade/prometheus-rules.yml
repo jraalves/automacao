@@ -1,0 +1,295 @@
+# Demonstração — regras de SLI, burn rate e alertas da automação fiscal.
+#
+# Este arquivo é o texto-fonte do que os gráficos das abas "Cobertura & SLI" e
+# "Visão geral" desta página mostram. As fórmulas são as mesmas do gerador
+# (tools/gen_data.py, bloco gerar_serie/gerar_slis), e os nomes de métrica são os
+# que as aplicações publicam via OTLP:
+#
+#   documentos_publicados_total / documentos_esperados_total   (contadores)
+#   extracoes_total{etapa, resultado}                          (contadores)
+#   extracao_duracao_seconds_bucket|count|sum                  (histograma)
+#   http_server_duration_milliseconds_count{http_response_status_code}
+#   pipeline_etapa_documentos{etapa, resultado}                (fila)
+#
+# Objetivos (SLOs) usados aqui, todos sintéticos:
+#   cobertura_fiscal        >= 99,0% em 30 dias   -> orçamento de 1,0%
+#   taxa_erro_worker        <=  0,5% em 30 dias   -> orçamento de 0,5%
+#   disponibilidade_busca   >= 99,5% em 30 dias   -> orçamento de 0,5%
+#   latencia_extracao       p95 <= 12 s; <= 5,0% acima do p95 em 30 dias
+#
+# Queima (burn rate) = fração do orçamento consumida / fração do tempo decorrido.
+# Limiares de página usados nesta demo, iguais aos do painel:
+#   1 h  >= 14,4  -> página (S1)     6 h >= 6,0 -> ticket (S2)     24 h >= 1,0 -> revisão (S3)
+#
+# Validação: tools/validate.py confere a estrutura deste arquivo; o CI o carrega
+# no promtool dentro do job de qualidade quando disponível. Em cluster real,
+# teste as regras antes do deploy — um alerta que aponta para um rótulo renomeado
+# fica verde para sempre (é o INC-DEMO-07 da demonstração).
+#
+#   kubectl apply -f observabilidade/prometheus-rules.yml   # via PrometheusRule (prometheus-operator)
+#   promtool check rules observabilidade/prometheus-rules.yml
+
+groups:
+  - name: automacao_sli_gravações
+    interval: 1m
+    rules:
+      - record: demo:cobertura_fiscal_ratio
+        expr: sum(rate(documentos_publicados_total[30d])) / sum(rate(documentos_esperados_total[30d]))
+        labels:
+          sli: cobertura_fiscal
+          janela: 30d
+
+      - record: demo:cobertura_fiscal_ratio_por_empresa
+        expr: sum by (empresa_id) (rate(documentos_publicados_total[1d])) / sum by (empresa_id) (rate(documentos_esperados_total[1d]))
+        labels:
+          sli: cobertura_fiscal
+          janela: 1d
+
+      - record: demo:taxa_erro_worker_ratio
+        expr: sum(rate(extracoes_total{resultado="falha_definitiva"}[30d])) / sum(rate(extracoes_total[30d]))
+        labels:
+          sli: taxa_erro_worker
+          janela: 30d
+
+      - record: demo:taxa_erro_worker_ratio_por_etapa
+        expr: sum by (etapa) (rate(extracoes_total{resultado="falha_definitiva"}[1h])) / sum by (etapa) (rate(extracoes_total[1h]))
+        labels:
+          sli: taxa_erro_worker
+          janela: 1h
+
+      - record: demo:disponibilidade_busca_ratio
+        expr: sum(rate(http_server_duration_milliseconds_count{http_response_status_code!~"5.."}[30d])) / sum(rate(http_server_duration_milliseconds_count[30d]))
+        labels:
+          sli: disponibilidade_busca
+          janela: 30d
+
+      - record: demo:extracao_p95_segundos
+        expr: histogram_quantile(0.95, sum by (le) (rate(extracao_duracao_seconds_bucket[30d])))
+        labels:
+          sli: latencia_extracao
+          janela: 30d
+
+      - record: demo:extracao_p95_segundos_curto
+        expr: histogram_quantile(0.95, sum by (le) (rate(extracao_duracao_seconds_bucket[1h])))
+        labels:
+          sli: latencia_extracao
+          janela: 1h
+
+      - record: demo:extracao_acima_do_objetivo_ratio
+        expr: 1 - (sum(rate(extracao_duracao_seconds_bucket{le="12"}[30d])) / sum(rate(extracao_duracao_seconds_count[30d])))
+        labels:
+          sli: latencia_extracao
+          janela: 30d
+
+      - record: demo:pipeline_fila_documentos
+        expr: sum by (etapa) (pipeline_etapa_documentos{resultado="aguardando"})
+        labels:
+          sli: cobertura_fiscal
+
+      - record: demo:fila_documentos_por_worker
+        expr: avg(pipeline_etapa_documentos{etapa="extracao", resultado="aguardando"})
+        labels:
+          sli: cobertura_fiscal
+          usa: HPA do worker (k8s/hpa.yaml, via adaptador de métricas customizadas)
+
+  - name: automacao_burn_rate
+    interval: 1m
+    rules:
+      # Queima do SLI de taxa de erro (orçamento 0,005 = 0,5% em fração).
+      - record: demo:taxa_erro_worker_burnrate_1h
+        expr: (sum(rate(extracoes_total{resultado="falha_definitiva"}[1h])) / sum(rate(extracoes_total[1h]))) / 0.005
+        labels:
+          sli: taxa_erro_worker
+
+      - record: demo:taxa_erro_worker_burnrate_6h
+        expr: (sum(rate(extracoes_total{resultado="falha_definitiva"}[6h])) / sum(rate(extracoes_total[6h]))) / 0.005
+        labels:
+          sli: taxa_erro_worker
+
+      - record: demo:taxa_erro_worker_burnrate_24h
+        expr: (sum(rate(extracoes_total{resultado="falha_definitiva"}[24h])) / sum(rate(extracoes_total[24h]))) / 0.005
+        labels:
+          sli: taxa_erro_worker
+
+      # Queima do SLI de cobertura: fração perdida / orçamento de 1%.
+      - record: demo:cobertura_fiscal_burnrate_6h
+        expr: (1 - (sum(rate(documentos_publicados_total[6h])) / sum(rate(documentos_esperados_total[6h])))) / 0.01
+        labels:
+          sli: cobertura_fiscal
+
+      - record: demo:cobertura_fiscal_burnrate_24h
+        expr: (1 - (sum(rate(documentos_publicados_total[24h])) / sum(rate(documentos_esperados_total[24h])))) / 0.01
+        labels:
+          sli: cobertura_fiscal
+
+      # Queima da disponibilidade da busca: 5xx acima do tolerado / orçamento de 0,5%.
+      - record: demo:disponibilidade_busca_burnrate_1h
+        expr: (sum(rate(http_server_duration_milliseconds_count{http_response_status_code=~"5.."}[1h])) / sum(rate(http_server_duration_milliseconds_count[1h]))) / 0.005
+        labels:
+          sli: disponibilidade_busca
+
+      # Queima da latência: fração acima de 12 s / orçamento de 5%.
+      - record: demo:latencia_extracao_burnrate_6h
+        expr: ((1 - (sum(rate(extracao_duracao_seconds_bucket{le="12"}[6h])) / sum(rate(extracao_duracao_seconds_count[6h]))))) / 0.05
+        labels:
+          sli: latencia_extracao
+
+  - name: automacao_alertas_sli
+    rules:
+      - alert: TaxaErroWorkerQueimaAcelerada
+        expr: demo:taxa_erro_worker_burnrate_1h > 14.4 and demo:taxa_erro_worker_burnrate_6h > 14.4
+        for: 5m
+        labels:
+          severity: S1
+          sli: taxa_erro_worker
+          pagina: "sim"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Extrações com falha definitiva queimando o orçamento em ritmo de página"
+          description: "Queima 1h {{ $labels.etapa }}: {{ $value | humanize }}x o ritmo do orçamento (limiar 14,4x) e a janela de 6 h confirma. Restrito à janela de demonstração; nenhum dado real."
+          evidencia: "aba Cobertura & SLI desta página; painel observabilidade/dashboards/grafana-demo.json"
+          como_corroborar: "observabilidade/loki-logql-exemplos.md (trace_id do pedido afetado)"
+          acao: "congelar rollout do worker e conferir a etapa que está falhando; ver k8s/deployment-worker.yaml"
+
+      - alert: TaxaErroWorkerQueimaModerada
+        expr: demo:taxa_erro_worker_burnrate_6h > 6 and demo:taxa_erro_worker_burnrate_24h > 6
+        for: 15m
+        labels:
+          severity: S2
+          sli: taxa_erro_worker
+          pagina: "não"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Orçamento de erro do worker consumindo 6x mais rápido que o ritmo"
+          description: "{{ $value | humanize }}x o ritmo por 6 h. Vira ticket, não página: ainda há orçamento no mês."
+          acao: "olhar a fila de falhas da interface (aba Extração & workflow) e o motivo por classe"
+
+      - alert: CoberturaFiscalQueimaAcelerada
+        expr: demo:cobertura_fiscal_burnrate_6h > 14.4 and demo:cobertura_fiscal_burnrate_24h > 6
+        for: 15m
+        labels:
+          severity: S1
+          sli: cobertura_fiscal
+          pagina: "sim"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Documentos obrigatórios deixando de ser publicados"
+          description: "Cobertura em {{ $value | humanize }}x o ritmo de queima. É o SLI que o time fiscal enxerga: D+5 sem publicação vira problema de negócio."
+          acao: "verificar conector do repositório de origem e profundidade de fila (demo:pipeline_fila_documentos)"
+
+      - alert: DisponibilidadeBuscaAbaixoDoObjetivo
+        expr: demo:disponibilidade_busca_ratio < 0.995 or demo:disponibilidade_busca_burnrate_1h > 14.4
+        for: 10m
+        labels:
+          severity: S2
+          sli: disponibilidade_busca
+          pagina: "não"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Busca fiscal respondendo 5xx acima do tolerado"
+          description: "Disponibilidade de 30 dias {{ $value | humanizePercentage }}, objetivo 99,5%. A borda (Ingress + oauth2-proxy) e a API são os dois suspeitos."
+          acao: "separar erro do proxy de erro da aplicação antes de escalar; k8s/oauth2-proxy.yaml"
+
+      - alert: LatenciaExtracaoP95AcimaDoObjetivo
+        expr: demo:extracao_p95_segundos_curto > 12
+        for: 30m
+        labels:
+          severity: S2
+          sli: latencia_extracao
+          pagina: "não"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "p95 da etapa de extração acima de 12 s por meia hora"
+          description: "p95 atual {{ $value | humanizeDuration }} (objetivo 12 s). Sozinho não pagina: pagina quando queima o orçamento de latência junto com a fila."
+          acao: "conferir OCR, cold start de pod e tamanho de lote; k8s/hpa.yaml"
+
+      - alert: OrcamentoDeErroEsgotado
+        expr: demo:taxa_erro_worker_burnrate_24h >= 1 or demo:cobertura_fiscal_burnrate_24h >= 1
+        for: 24h
+        labels:
+          severity: S3
+          sli: multi
+          pagina: "não"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Orçamento do mês no ritmo exato de esgotamento"
+          description: "Queima de 24 h em {{ $value | humanize }}x: sem mudança, o mês fecha com o orçamento zerado. É a revisão semanal, não a madrugada."
+          acao: "revisar objetivo e mudanças do período; registrar na fila de decisão do painel"
+
+  - name: automacao_alertas_plataforma
+    rules:
+      - alert: MetricaDeSLIAusente
+        expr: absent(demo:taxa_erro_worker_ratio) or absent(demo:cobertura_fiscal_ratio)
+        for: 10m
+        labels:
+          severity: S2
+          sli: telemetria
+          pagina: "não"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Uma série de SLI sumiu: alerta silencioso é pior que alerta barulhento"
+          description: "A série {{ $value }} não existe mais. Causa mais comum: rótulo renomeado sem atualizar a regra (é o INC-DEMO-07 da demonstração)."
+          acao: "promtool check rules; conferir rótulos publicados pelo Collector em observabilidade/otel-collector-config.yaml"
+
+      - alert: PipelineParadoComFilaCrescendo
+        expr: demo:pipeline_fila_documentos > 2000 and deriv(demo:pipeline_fila_documentos[30m]) > 0
+        for: 30m
+        labels:
+          severity: S1
+          sli: cobertura_fiscal
+          pagina: "sim"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Fila crescendo com o pipeline parado"
+          description: "{{ $value | humanize }} documentos aguardando e a derivada é positiva. Se o HPA não respondeu, a métrica de fila está errada (CPU não serve para trabalho assíncrono)."
+          acao: "kubectl -n automacao-demo get hpa; k8s/hpa.yaml"
+
+      - alert: WorkerEmLoopDeReinicio
+        expr: increase(kube_pod_container_status_restarts_total{namespace="automacao-demo", pod=~"automacao-worker.*"}[15m]) > 3
+        for: 15m
+        labels:
+          severity: S2
+          sli: taxa_erro_worker
+          pagina: "não"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Worker reiniciando em loop"
+          description: "Reinicializações acima de 3 em 15 min. Na demonstração a causa sintética é o Secret montado antes de existir (INC-DEMO-05)."
+          acao: "kubectl -n automacao-demo describe pod; k8s/secret-template.yaml"
+
+      - alert: CollectorSemReceberTelemetria
+        expr: sum(rate(otel_collector_receiver_accepted_spans{namespace="automacao-demo"}[5m])) == 0
+        for: 10m
+        labels:
+          severity: S2
+          sli: telemetria
+          pagina: "não"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Collector OTLP sem aceitar dados"
+          description: "Sem spans aceitos, trace e log deixam de existir e a correlação da interface quebra. As aplicações não sabem dos backends: sabem só do Collector."
+          acao: "k8s/configmap-otel.yaml e observabilidade/otel-collector-config.yaml"
+
+      - alert: DuplicidadeDeChaveNaPublicacao
+        expr: sum(rate(extracoes_total{resultado="conflito_de_chave"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: S3
+          sli: cobertura_fiscal
+          pagina: "não"
+          equipe: sre-demo
+          ambiente: demonstracao
+        annotations:
+          summary: "Dois workers tentando publicar o mesmo documento"
+          description: "Corrida de publicação detectada. O desenho usa ETag como lock distribuído; conflito não nulo significa lock faltando (INC-DEMO-06)."
+          acao: "verificar a política de reprocessamento da interface antes de liberar retry"

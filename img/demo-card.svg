@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Automação de gestão fiscal — demonstração com dados sintéticos">
+  <rect width="1200" height="630" fill="#0b0f16"/>
+  <rect x="0" y="0" width="1200" height="630" fill="none" stroke="#25314a" stroke-width="2"/>
+  <g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+    <rect x="72" y="64" width="330" height="42" rx="21" fill="rgba(210,153,34,0.14)" stroke="#d29922"/>
+    <text x="98" y="92" font-size="20" fill="#f3d18a">DEMONSTRAÇÃO · DADOS SINTÉTICOS</text>
+    <text x="72" y="196" font-size="58" font-weight="700" fill="#e8eefc">Automação de gestão fiscal</text>
+    <text x="72" y="262" font-size="31" fill="#94a3b8">Busca, extração e publicação de documentos fiscais</text>
+    <text x="72" y="308" font-size="31" fill="#94a3b8">com SLIs, burn rate, Kubernetes e OTel documentados</text>
+    <g transform="translate(72,368)">
+      <rect x="0" y="46" width="150" height="60" rx="8" fill="#111827" stroke="#25314a"/>
+      <text x="18" y="72" font-size="15" fill="#94a3b8">Cobertura fiscal</text>
+      <text x="18" y="95" font-size="22" font-weight="700" fill="#3fb950">99,3%  (alvo 99,0)</text>
+      <rect x="170" y="46" width="150" height="60" rx="8" fill="#111827" stroke="#25314a"/>
+      <text x="188" y="72" font-size="15" fill="#94a3b8">Taxa de erro do worker</text>
+      <text x="188" y="95" font-size="22" font-weight="700" fill="#6ec1ff">0,41%  (limite 0,5)</text>
+      <rect x="340" y="46" width="150" height="60" rx="8" fill="#111827" stroke="#25314a"/>
+      <text x="358" y="72" font-size="15" fill="#94a3b8">Latência p95 da extração</text>
+      <text x="358" y="95" font-size="22" font-weight="700" fill="#d29922">10,9 s  (limite 12 s)</text>
+    </g>
+    <polyline points="640,470 690,432 740,446 790,404 840,418 890,338 940,392 990,368 1040,384 1090,352 1128,364"
+              fill="none" stroke="#6ec1ff" stroke-width="4" stroke-linejoin="round"/>
+    <line x1="640" y1="330" x2="1128" y2="330" stroke="#f85149" stroke-width="2" stroke-dasharray="8 6"/>
+    <text x="640" y="318" font-size="16" fill="#94a3b8">limiar de queima acelerada (14,4x)</text>
+    <text x="72" y="560" font-size="22" fill="#94a3b8">seed 20260124 · gerado por tools/gen_data.py · nenhum dado de cliente</text>
+    <text x="72" y="596" font-size="22" fill="#6ec1ff">github.com/jraalves/automacao</text>
+  </g>
+</svg>

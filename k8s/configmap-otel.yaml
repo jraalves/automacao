@@ -1,0 +1,92 @@
+# Demonstração — Collector OpenTelemetry como ConfigMap montável.
+#
+# Este arquivo é a versão que o cluster aplica: o Deployment do Collector monta a
+# chave collector.yaml em /etc/otelcol-contrib/config.yaml. A versão de leitura,
+# com cada campo explicado, é observabilidade/otel-collector-config.yaml. As duas
+# precisam parsear — o tools/validate.py confere isso.
+#
+# Papel no desenho: UM ponto de telemetria dentro do cluster. As aplicações só
+# conhecem o Collector (OTLP, portas 4317/4318); nunca os backends. Trocar Loki,
+# Prometheus ou Tempo por outra ferramenta livre é mudança de configuração, não
+# de código.
+#
+#   kubectl apply -f k8s/configmap-otel.yaml
+#   kubectl -n automacao-demo rollout restart deploy/otel-collector
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/component: telemetria
+    app.kubernetes.io/part-of: automacao-fiscal
+    demonstracao/geracao: sintetica
+data:
+  collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      batch:
+        timeout: 5s
+        send_batch_size: 8192
+      # O identificador do pedido vira campo indexável no Loki e vínculo com o
+      # trace_id: assim a aba "Correlação" da interface sai de uma linha da
+      # tabela e chega nos logs daquele pedido.
+      attributes/pedido:
+        actions:
+          - key: request_id
+            action: copy
+            from_attribute: http.request.header.x_request_id
+      resource:
+        attributes:
+          - key: service.namespace
+            value: automacao-demo
+            action: upsert
+          - key: demonstracao
+            value: sintetica
+            action: upsert
+
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:9464
+        send_timestamps: true
+        namespace: automacao
+      otlp/tempo:
+        endpoint: tempo.automacao-demo.svc.cluster.local:4317
+        tls:
+          insecure: true
+      loki:
+        endpoint: http://loki.automacao-demo.svc.cluster.local:3100/loki/api/v1/push
+      debug:
+        verbosity: basic
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, attributes/pedido, batch]
+          exporters: [otlp/tempo, debug]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch]
+          exporters: [prometheus]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, attributes/pedido, batch]
+          exporters: [loki]
+      telemetry:
+        logs:
+          level: info
+        metrics:
+          level: basic

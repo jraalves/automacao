@@ -1,0 +1,167 @@
+# Demonstração — OpenTelemetry Collector: o ponto único de telemetria.
+#
+# Princípio do desenho: as aplicações (api-busca, worker-extracao,
+# worker-publicacao, validador-schema, conector-arquivos) conhecem UMA coisa — o
+# Collector, por OTLP. Prometheus, Loki e Tempo ficam atrás. Trocar um backend
+# não toca código de negócio; e a correlação que a interface usa (o
+# X-Request-Id virando campo de log com o mesmo trace_id) é resolvida AQUI, não
+# em cada serviço.
+#
+# A versão montável em cluster é k8s/configmap-otel.yaml (mesmo conteúdo, menos
+# comentários). Este arquivo é a referência de leitura.
+#
+# Validação: tools/validate.py confere as seções obrigatórias e o fato de todo
+# exporter citado em service.pipelines existir na seção exporters.
+#
+# Rodar local (fora deste site, que é estático):
+#   docker run --rm -p 4317:4317 -p 4318:4318 -p 8888:8888 \
+#     -v ./observabilidade:/cfg:ro \
+#     ghcr.io/open-telemetry/opentelemetry-collector-contrib:latest \
+#     --config /cfg/otel-collector-config.yaml
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  # Scrape das métricas OTLP expostas pelos pods (porta 9464, ver
+  # k8s/service-api.yaml). Mantido aqui porque a API e o worker publicam
+  # histogramas que o SLI de latência usa.
+  prometheus/interno:
+    config:
+      scrape_configs:
+        - job_name: pods-demo
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels:
+                - __meta_kubernetes_namespace
+              action: keep
+              regex: automacao-demo
+            - source_labels:
+                - __meta_kubernetes_pod_label_app_kubernetes_io_name
+              action: replace
+              target_label: service_name
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch:
+    timeout: 5s
+    send_batch_size: 8192
+    send_batch_max_size: 10240
+  # Resource: fixa o namespace lógico e marca que é demonstração. Nenhuma
+  # identificação de cliente, empresa ou ambiente real entra aqui.
+  resource:
+    attributes:
+      - key: service.namespace
+        value: automacao-demo
+        action: upsert
+      - key: deployment.environment
+        value: demonstracao
+        action: upsert
+      - key: demonstracao
+        value: sintetica
+        action: upsert
+  # Correlação: o identificador do pedido da interface (X-Request-Id) chega como
+  # atributo HTTP e é copiado para o campo request_id de logs e spans. É o que
+  # permite ao LogQL sair de uma linha da tabela e cair nos logs daquele pedido.
+  transform/pedido:
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["request_id"], attributes["http.request.header.x_request_id"])
+          - set(attributes["trace_id"], trace_id)
+    span_statements:
+      - context: span
+        statements:
+          - set(attributes["request_id"], attributes["http.request.header.x_request_id"])
+  filter/saude:
+    metrics:
+      exclude:
+        metrics:
+          - 'http_server_duration_milliseconds_bucket{http_route="/healthz"}'
+
+exporters:
+  # Métricas viram série no Prometheus: o exporter expõe as métricas recebidas
+  # por OTLP e o Prometheus raspa. Os nomes casam com prometheus-rules.yml.
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    send_timestamps: true
+    metric_expiration: 120m
+    namespace: automacao
+  # Traces vão para o Tempo (gRPC, dentro do cluster).
+  otlp/tempo:
+    endpoint: tempo.automacao-demo.svc.cluster.local:4317
+    tls:
+      insecure: true
+  # Logs estruturados vão para o Loki. Os campos trace_id e request_id são
+  # indexados como atributos (ver loki-logql-exemplos.md).
+  loki:
+    endpoint: http://loki.automacao-demo.svc.cluster.local:3100/loki/api/v1/push
+    max_backoff: 10s
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: localhost:1777
+  zpages:
+    endpoint: localhost:55679
+
+service:
+  extensions:
+    - health_check
+    - pprof
+    - zpages
+  pipelines:
+    traces:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - transform/pedido
+        - resource
+        - batch
+      exporters:
+        - otlp/tempo
+        - debug
+    metrics:
+      receivers:
+        - otlp
+        - prometheus/interno
+      processors:
+        - memory_limiter
+        - filter/saude
+        - resource
+        - batch
+      exporters:
+        - prometheus
+    logs:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - transform/pedido
+        - resource
+        - batch
+      exporters:
+        - loki
+  telemetry:
+    logs:
+      level: info
+      encoding: json
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888

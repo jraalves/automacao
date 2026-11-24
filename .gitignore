@@ -1,0 +1,40 @@
+# ---- Python: artefatos de execução, nunca versionados -------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# ---- Editores e sistema operacional -------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Segredos e arquivos locais ----------------------------------------
+# Estes padrões existem para reforçar a regra do repositório: credencial real
+# nunca entra no Git. tools/leak_check.py barra o conteúdo; o .gitignore barra
+# o nome. Um não substitui o outro.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.keystore
+kubeconfig*
+credentials.json
+token.txt
+secret-local.yaml
+
+# ---- Lixo de verificação local ------------------------------------------
+# data/sinteticos.json e data/dados.js SÃO versionados de propósito: o CI
+# compara com o que tools/gen_data.py --check regenera.
+/tmp/
+*.local.*
+*.log
+*.diff

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ADRs de decisão — Automação de gestão fiscal (demonstração)</title>
+  <meta name="description" content="Índice das decisões de arquitetura da demonstração: borda com Ingress e oauth2-proxy, workers desacoplados da API e dados sintéticos publicados em vez do código original.">
+  <meta name="author" content="João Renato Alves">
+  <meta name="theme-color" content="#0b0f16">
+  <link rel="canonical" href="https://jraalves.github.io/automacao/docs/decisoes/">
+  <link rel="icon" href="/automacao/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/automacao/styles.css">
+</head>
+<body>
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+  <div class="fixo-topo">
+    <div class="faixa faixa-sintetico">
+      <span class="marcador">Demonstração</span>
+      <strong>Documentos de decisão (ADRs) de um desenho documentado</strong>
+      <span class="sep">·</span> nenhuma destas decisões é executada por este site
+    </div>
+    <header class="topo">
+      <div class="marca">
+        <span class="glifo" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6ec1ff" stroke-width="1.6">
+            <path d="M4 7h16M4 12h10M4 17h7"/>
+            <circle cx="18.4" cy="15.6" r="3.6"/>
+            <path d="M18.4 13.4v2.2l1.5 1"/>
+          </svg>
+        </span>
+        <div>
+          <h1>Decisões de projeto</h1>
+          <p>Três ADRs que sustentam a aba Arquitetura da demonstração</p>
+        </div>
+      </div>
+      <div class="selos">
+        <a class="selo" href="/automacao/">voltar para a demonstração</a>
+        <a class="selo" href="https://github.com/jraalves/automacao" rel="noopener noreferrer">github.com/jraalves/automacao</a>
+      </div>
+    </header>
+  </div>
+  <main id="conteudo">
+    <section class="vista" id="vista-indice">
+      <div class="titulo-vista">
+        <h2>Índice dos ADRs</h2>
+        <p class="sub">Cada documento tem contexto, decisão, alternativas rejeitadas, custo aceito e
+          <em>como medir</em> — porque decisão sem métrica é opinião. Os arquivos são Markdown: no
+          site publicado eles abrem como texto-fonte; com formatação, leia no repositório.</p>
+      </div>
+      <div class="grupo">
+        <div class="grade g-2">
+          <div class="cartao">
+            <h4><a href="/automacao/docs/decisoes/0001-borda-com-ingress-e-oauth2-proxy.md">ADR 0001 — Borda com Ingress + oauth2-proxy em vez de expor o Service</a></h4>
+            <p>Um único ponto de entrada para TLS, rate limit e cabeçalhos de segurança; a API
+              continua <code>ClusterIP</code> e a allow list de tráfego vira revisão de código.</p>
+            <p style="margin-top:8px"><code>k8s/ingress.yaml</code> · <code>k8s/oauth2-proxy.yaml</code> · <code>k8s/networkpolicy.yaml</code></p>
+          </div>
+          <div class="cartao">
+            <h4><a href="/automacao/docs/decisoes/0002-workers-desacoplados-da-api.md">ADR 0002 — Workers desacoplados da API</a></h4>
+            <p>Busca interativa e extração em lote têm métricas de escala diferentes: CPU para a
+              API, profundidade de fila para o worker. Custo aceito: consistência eventual visível.</p>
+            <p style="margin-top:8px"><code>k8s/deployment-worker.yaml</code> · <code>k8s/hpa.yaml</code> · <code>k8s/pdb.yaml</code></p>
+          </div>
+          <div class="cartao tom-info">
+            <h4><a href="/automacao/docs/decisoes/0003-dados-sinteticos-em-vez-do-codigo-original.md">ADR 0003 — Dados sintéticos publicados em vez do código original</a></h4>
+            <p>O código não pode ser aberto; o desenho pode. Dados gerados por seed
+              <code>20260124</code>, reprodutíveis byte a byte e varridos por verificador
+              anti-vazamento no CI.</p>
+            <p style="margin-top:8px"><code>tools/gen_data.py</code> · <code>tools/leak_check.py</code> · <code>data/AVISO-SINTETICO.md</code></p>
+          </div>
+          <div class="cartao">
+            <h4>Como ler junto com a interface</h4>
+            <p>A aba <a href="/automacao/#/arquitetura">Arquitetura</a> traz a mesma tabela em forma
+              de diagrama, com link para cada arquivo; a aba
+              <a href="/automacao/#/sli">Cobertura &amp; SLI</a> mostra as fórmulas que as regras de
+              <code>observabilidade/</code> implementam.</p>
+            <p style="margin-top:8px">Repositório: <a href="https://github.com/jraalves/fiscal-automation-case" rel="noopener noreferrer">github.com/jraalves/fiscal-automation-case</a> ·
+              portfólio: <a href="https://jraalves.github.io/portfolio" rel="noopener noreferrer">jraalves.github.io/portfolio</a></p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="rodape">
+    <span>Demonstração pessoal com dados sintéticos. Nenhum dado de cliente, empresa ou ambiente real.</span>
+    <span>
+      <a href="/automacao/">início</a> ·
+      <a href="/automacao/README.md">README</a> ·
+      <a href="/automacao/SECURITY.md">SECURITY</a> ·
+      <a href="/automacao/LICENSE">MIT</a>
+    </span>
+  </footer>
+</body>
+</html>

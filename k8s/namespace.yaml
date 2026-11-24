@@ -1,0 +1,50 @@
+# Demonstração — desenho de produção documentado, não executado por este site.
+# Nenhum nome de cliente, domínio corporativo ou ambiente real aparece aqui.
+#
+# Aplicação (num cluster seu):
+#   kubectl apply -f k8s/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: automacao-demo
+  labels:
+    app.kubernetes.io/name: automacao-fiscal
+    app.kubernetes.io/part-of: automacao-fiscal
+    app.kubernetes.io/managed-by: argocd
+    ambiente: demonstracao
+    # Rótulo referenciado pelas NetworkPolicy e pelas regras de SLI.
+    team.sre.io/observabilidade: habilitado
+    # Blindamento de pod: nada privilegiado neste ambiente.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# Cota do ambiente de demonstração: limita o estrago de um loop de repetição
+# acidental e torna explícito que o namespace não é de produção.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: automacao-demo-cota
+  namespace: automacao-demo
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    persistentvolumeclaims: "6"
+---
+# Limite padrão por contêiner: quem criar um pod sem limites herda estes valores.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: automacao-demo-limit-defaults
+  namespace: automacao-demo
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi

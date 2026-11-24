@@ -1,0 +1,52 @@
+# Demonstração — PodDisruptionBudget de API e worker.
+#
+# Por que dois orçamentos diferentes?
+#   * A API serve busca interativa: se perder réplicas durante um drain, o p95 de
+#     disponibilidade da busca sobe na hora (SLI "disponibilidade_busca").
+#   * O worker processa fila: perder um pod no meio de uma extração atrasa o
+#     pipeline, mas a fila retoma. O orçamento dele é maior de propósito, e o
+#     custo aparece em "cobertura_fiscal", não na disponibilidade.
+#
+# PDB não protege de falha de hardware: protege de operação voluntária do cluster
+# (drain de nó, upgrade, autoscaler). Interrupção involuntária continua coberta
+# pelo replicas + HPA de deployment-api.yaml / deployment-worker.yaml.
+#
+#   kubectl apply -f k8s/pdb.yaml
+#   kubectl -n automacao-demo get pdb
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: automacao-api-pdb
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: automacao-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: automacao-fiscal
+    demonstracao/geracao: sintetica
+spec:
+  # Com 3 réplicas (deployment-api.yaml), minAvailable 2 deixa um pod por vez
+  # sair do serviço. Nunca zerar: o Ingress continua apontando para o Service.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: automacao-api
+      app.kubernetes.io/component: api
+---
+# Worker: orçamento por quantidade absoluta, não porcentagem. Com 25% o valor
+# seria 0 durante o dia (três réplicas) e o drain do nó simplesmente travaria.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: automacao-worker-pdb
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: automacao-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: automacao-fiscal
+    demonstracao/geracao: sintetica
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: automacao-worker
+      app.kubernetes.io/component: worker

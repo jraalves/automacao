@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>404 — página não encontrada · Automação de gestão fiscal (demonstração)</title>
+  <meta name="description" content="Página inexistente nesta demonstração estática de automação de gestão fiscal com dados sintéticos. Volte para a interface, abra o README ou o desenho de arquitetura.">
+  <meta name="robots" content="noindex, follow">
+  <meta name="author" content="João Renato Alves">
+  <meta name="theme-color" content="#0b0f16">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Automação fiscal — demonstração">
+  <meta property="og:title" content="404 — página não encontrada">
+  <meta property="og:description" content="Este site é estático: se a rota não existe, o arquivo não está publicado. Dados sintéticos, nenhum dado de cliente.">
+  <link rel="canonical" href="https://jraalves.github.io/automacao/">
+  <link rel="icon" href="/automacao/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/automacao/styles.css">
+</head>
+<body>
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+  <div class="fixo-topo">
+    <div class="faixa faixa-sintetico">
+      <span class="marcador">Demonstração</span>
+      <strong>Demonstração — dados sintéticos, nenhum dado de cliente</strong>
+      <span class="sep">·</span> gerado por <code>tools/gen_data.py</code> com seed fixa
+      <span class="sep">·</span> <a href="/automacao/#/sobre">o que é real e o que é fictício</a>
+    </div>
+    <div class="faixa faixa-auth">
+      <span class="marcador">404</span>
+      <strong>esta rota não existe neste site</strong>
+      <span class="sep">·</span> a publicação é estática (GitHub Pages): não há backend, API ou
+      página dinâmica por trás daqui — se o arquivo não foi publicado, o servidor responde 404
+    </div>
+    <header class="topo">
+      <div class="marca">
+        <span class="glifo" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6ec1ff" stroke-width="1.6">
+            <path d="M4 7h16M4 12h10M4 17h7"/>
+            <circle cx="18.4" cy="15.6" r="3.6"/>
+            <path d="M18.4 13.4v2.2l1.5 1"/>
+          </svg>
+        </span>
+        <div>
+          <h1>Automação de gestão fiscal — demonstração</h1>
+          <p>Busca, recuperação e gestão de documentos fiscais em repositório de arquivos corporativo</p>
+        </div>
+      </div>
+      <div class="selos">
+        <span class="selo">HTTP <b>404</b></span>
+        <span class="selo">seed <b>20260124</b></span>
+        <a class="selo" href="https://github.com/jraalves/automacao" rel="noopener noreferrer">código: github.com/jraalves/automacao</a>
+      </div>
+    </header>
+    <nav class="abas" aria-label="Seções da demonstração">
+      <a class="aba" href="/automacao/#/visao-geral"><span class="numero">01</span>Visão geral</a>
+      <a class="aba" href="/automacao/#/busca"><span class="numero">02</span>Busca fiscal</a>
+      <a class="aba" href="/automacao/#/extracao"><span class="numero">03</span>Extração &amp; workflow</a>
+      <a class="aba" href="/automacao/#/sli"><span class="numero">04</span>Cobertura &amp; SLI</a>
+      <a class="aba" href="/automacao/#/arquitetura"><span class="numero">05</span>Arquitetura</a>
+      <a class="aba" href="/automacao/#/sobre"><span class="numero">06</span>Sobre o case</a>
+    </nav>
+  </div>
+  <main id="conteudo">
+    <section class="vista" id="vista-404">
+      <div class="titulo-vista">
+        <h2>404 — o endereço não existe</h2>
+        <p class="sub">Três motivos prováveis: o link foi digitado com um caractere a mais, você
+          procurou um arquivo que <strong>não é publicado</strong> (código do cliente, dados reais,
+          ambiente interno), ou o caminho estava sem o prefixo do projeto. Este site é publicado no
+          caminho versionado <code>jraalves.github.io/automacao/</code>, então
+          <code>jraalves.github.io/outro-caminho</code> não existe aqui.</p>
+      </div>
+      <div class="grupo">
+        <h3>Links úteis</h3>
+        <div class="grade g-2">
+          <div class="cartao">
+            <h4>Ir para a demonstração</h4>
+            <ul class="lista-notas">
+              <li><a href="/automacao/">Interface completa (seis vistas, dados sintéticos)</a></li>
+              <li><a href="/automacao/#/arquitetura">Arquitetura: diagrama e arquivos do desenho</a></li>
+              <li><a href="/automacao/#/sli">Cobertura &amp; SLI: burn rate e orçamento de erro</a></li>
+              <li><a href="/automacao/#/sobre">Sobre o case: o que é demonstração e o que é desenho</a></li>
+            </ul>
+          </div>
+          <div class="cartao tom-info">
+            <h4>Ler os arquivos do repositório</h4>
+            <ul class="lista-notas">
+              <li><a href="/automacao/README.md">README (como rodar local e mapa de arquivos)</a></li>
+              <li><a href="/automacao/data/AVISO-SINTETICO.md">aviso de dados sintéticos e como reproduzir</a></li>
+              <li><a href="/automacao/docs/decisoes/index.html">índice dos ADRs de decisão</a></li>
+              <li><a href="/automacao/k8s/README.md">manifests Kubernetes: ordem de aplicação e armadilhas</a></li>
+              <li><a href="/automacao/observabilidade/prometheus-rules.yml">regras de SLI, burn rate e alertas</a></li>
+              <li><a href="/automacao/SECURITY.md">como relatar um problema de segurança</a></li>
+              <li><a href="/automacao/LICENSE">licença MIT</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="cartao" style="margin-top:14px">
+          <h4>Se você chegou aqui por um link interno quebrado</h4>
+          <p>Isso é um defeito deste repositório, e o <code>tools/validate.py</code> existe justamente
+            para impedir que ele chegue publicado: ele confere se todo <code>href</code> e
+            <code>src</code> interno aponta para um arquivo que existe. Rode
+            <code>python3 tools/validate.py</code> na cópia local e abra uma issue no repositório
+            com o caminho que falhou.</p>
+          <p style="margin-top:8px"><a href="https://github.com/jraalves/automacao" rel="noopener noreferrer">github.com/jraalves/automacao</a> ·
+            <a href="https://jraalves.github.io/portfolio" rel="noopener noreferrer">jraalves.github.io/portfolio</a> ·
+            <a href="https://www.linkedin.com/in/jraalves" rel="noopener noreferrer">linkedin.com/in/jraalves</a></p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="rodape">
+    <span>Demonstração pessoal com dados sintéticos. Nenhum dado de cliente, empresa ou ambiente real.</span>
+    <span>
+      <a href="/automacao/">início</a> ·
+      <a href="/automacao/README.md">README</a> ·
+      <a href="/automacao/SECURITY.md">SECURITY</a> ·
+      <a href="https://github.com/jraalves" rel="noopener noreferrer">github.com/jraalves</a>
+    </span>
+  </footer>
+</body>
+</html>

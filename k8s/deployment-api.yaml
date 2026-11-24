@@ -1,0 +1,168 @@
+# Demonstração — API de busca e gestão fiscal (FastAPI).
+#
+# Papel no desenho: responder busca, listagem, detalhe e ações de workflow. NÃO
+# faz trabalho longo: extração e publicação pertencem ao worker
+# (deployment-worker.yaml), decisão registrada em docs/decisoes/0002-...
+#
+#   kubectl apply -f k8s/deployment-api.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: automacao-api
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: automacao-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: automacao-fiscal
+    team.sre.io/observabilidade: habilitado
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 300
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: automacao-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: automacao-api
+        app.kubernetes.io/component: api
+      annotations:
+        # Sem isso, um rollout pode deixar métricas e logs órfãos de rótulo.
+        prometheus.io/scrape: "false"
+        prometheus.io/port: "9464"
+        checkpoint/geracao: "sintetica"
+    spec:
+      serviceAccountName: automacao-api
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: automacao-api
+      containers:
+        - name: api
+          image: registry.example.com/automacao/api:1.4.2-SINT
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: metrics
+              containerPort: 9464
+          env:
+            - name: AMBIENTE
+              value: "demonstracao"
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: automacao-demo-credenciais
+                  key: mongo_uri
+            - name: OTLP_ENDPOINT
+              value: "http://otel-collector.automacao-demo.svc.cluster.local:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "automacao-api"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=demonstracao,service.namespace=automacao-demo"
+            - name: LOG_FORMATO
+              value: "json"
+            - name: ITENS_POR_PAGINA
+              value: "50"
+            - name: LIMITE_CONCORRENCIA_LEITURA
+              value: "32"
+          # /pronta checa Mongo com timeout curto: se o banco sumir, o pod sai do
+          # balanceamento em vez de devolver erro 500 para o usuário.
+          readinessProbe:
+            httpGet:
+              path: /pronta
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /viva
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /viva
+              port: http
+            failureThreshold: 12
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/automacao
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: config
+          configMap:
+            name: automacao-api-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: automacao-api-config
+  namespace: automacao-demo
+data:
+  aplicacao.yaml: |
+    # Configuração de demonstração: nenhum endereço real, nenhuma credencial.
+    servidor:
+      porta: 8000
+      workers: 4
+    busca:
+      paginacao_maxima: 200
+      campos_ordenaveis:
+        - data_emissao
+        - data_referencia
+        - numero_documento
+        - status_extracao
+    repositorio_destino:
+      # Descritor genérico do repositório de arquivos corporativo.
+      tipo: "m365-drive-like"
+      pasta_raiz: "/Demonstracao-Fiscal"
+      nomear_por: "empresa-tipo-numero"
+    extras:
+      reter_versoes: 10
+      conferencia_humana: obrigatoria_para_ajuste
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: automacao-api
+  namespace: automacao-demo
+  automountServiceAccountToken: false

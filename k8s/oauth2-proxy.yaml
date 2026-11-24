@@ -1,0 +1,165 @@
+# Demonstração — oauth2-proxy na borda (arquitetura documentada, NÃO executada
+# por este site: a demo abre sem autenticação nenhuma).
+#
+# Por que ele existe: a aplicação é interna e precisa de sessão humana curta, com
+# allow list de quem entra, sem implementar SSO dentro do código de negócio. O
+# proxy fica à frente do Service; sem cookie válido, o backend nem é chamado.
+#
+#   kubectl apply -f k8s/oauth2-proxy.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oauth2-proxy-config
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+data:
+  oauth2.cfg: |
+    provider = "oidc"
+    # Host fictício do Ingress.
+    redirect_url = "https://automacao-demo.example.com/oauth2/callback"
+    email_domains = [ "example.com" ]
+    # allow list de grupos vem do IdP; nada de lista de pessoas no repositório.
+    allowed_groups = [ "grupo-automacao-fiscal-demo" ]
+    cookie_name = "_auth_automacao_demo"
+    cookie_secure = "true"
+    cookie_httponly = "true"
+    cookie_samesite = "lax"
+    cookie_expire = "168h"
+    cookie_refresh = "60m"
+    # Cabeçalhos que a API lê para auditoria. O proxy remove os que chegarem de
+    # fora para impedir forjamento.
+    pass_user_headers = "true"
+    pass_host_header = "false"
+    set_authorization_header = "false"
+    skip_provider_button = "true"
+    proxy_prefix = "/oauth2"
+    # Importantes para correlação: o request id passa igual para o backend.
+    pass_authorization_header = "false"
+    header_claims = [
+      { name = "X-Auth-Subject", claim = "sub" },
+      { name = "X-Auth-Groups", claim = "groups" }
+    ]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/component: borda
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/component: borda
+    spec:
+      serviceAccountName: automacao-demo-borda
+      # O proxy não fala com a API do cluster: nada de token montado no pod.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: registry.example.com/automacao/oauth2-proxy:7.6-SINT
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config=/etc/oauth2/oauth2.cfg
+          env:
+            # Três segredos vêm de um Secret montado por envFrom; nenhum valor
+            # real existe neste repositório (veja secret-template.yaml).
+            - name: OAUTH2_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: automacao-demo-credenciais
+                  key: oauth2_client_id
+            - name: OAUTH2_CLIENT_SECRET_REF
+              valueFrom:
+                secretKeyRef:
+                  name: automacao-demo-credenciais
+                  key: oauth2_client_secret
+            - name: OAUTH2_COOKIE_SECRET_REF
+              valueFrom:
+                secretKeyRef:
+                  name: automacao-demo-credenciais
+                  key: oauth2_cookie_secret
+          ports:
+            - name: http
+              containerPort: 4180
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: configuracao
+              mountPath: /etc/oauth2
+              readOnly: true
+            - name: run
+              mountPath: /tmp
+      volumes:
+        - name: configuracao
+          configMap:
+            name: oauth2-proxy-config
+        - name: run
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: automacao-demo-borda
+  namespace: automacao-demo
+  automountServiceAccountToken: false

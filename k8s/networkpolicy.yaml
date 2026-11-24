@@ -1,0 +1,166 @@
+# Demonstração — políticas de rede: negar por padrão, liberar o essencial.
+#
+# Decisão documentada: um pod da API fala com Mongo e com o Collector; um worker
+# fala com Mongo, com o Collector e com o repositório de arquivos (para fora do
+# cluster). Nada mais deveria conseguir. Sem NetworkPolicy, um pod comprometido
+# alcança qualquer outro pod do namespace — e às vezes do cluster inteiro.
+#
+#   kubectl apply -f k8s/networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: negar-por-padrao
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/part-of: automacao-fiscal
+spec:
+  # Seleciona TODOS os pods do namespace e não libera nenhum tráfego. As
+  # políticas abaixo é que abrem exceções, uma por vez, com nome e motivo.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Liberação 1 — borda: Ingress → oauth2-proxy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: liberar-borda-para-proxy
+  namespace: automacao-demo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Em produção, restrinja ao namespace do controller de borda e, se o
+        # cluster suportar, aos rótulos do DaemonSet do Ingress.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 4180
+---
+# Liberação 2 — proxy → API (só pelo Service da API).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: liberar-proxy-para-api
+  namespace: automacao-demo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: automacao-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# Liberação 3 — API e worker → Mongo.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: liberar-aplicacao-para-mongo
+  namespace: automacao-demo
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: ["automacao-api", "automacao-worker"]
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: automacao-mongo
+      ports:
+        - protocol: TCP
+          port: 27017
+---
+# Liberação 4 — API e worker → Collector de telemetria (OTLP gRPC e HTTP).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: liberar-telemetria
+  namespace: automacao-demo
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: ["automacao-api", "automacao-worker", "oauth2-proxy"]
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+    # Toda política de saída precisa liberar DNS, senão a resolução de nome quebra
+    # e o sintoma chega como "timeout misterioso" na aplicação.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Liberação 5 — worker → repositório de arquivos corporativo (fora do cluster).
+# Destino genérico: 443 para qualquer rede externa. Em produção, vale fechar por
+# FQDN se o CNI suportar (Egress NetworkPolicy por nome é limitado).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: liberar-worker-para-repositorio
+  namespace: automacao-demo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: automacao-worker
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 443
+---
+# Liberação 6 — leitura de métricas no namespace (Prometheus/Grafana).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: liberar-leitura-de-metricas
+  namespace: automacao-demo
+spec:
+  podSelector:
+    matchExpressions:
+      - key: team.sre.io/observabilidade
+        operator: Exists
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observabilidade
+      ports:
+        - protocol: TCP
+          port: 9464

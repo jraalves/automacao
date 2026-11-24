@@ -1,0 +1,103 @@
+# Demonstração — autoscala horizontal da API e do worker.
+#
+# Ideia central do desenho: a API escala por carga de request (CPU/memória, que
+# acompanham o número de buscas); o worker escala por PROFUNDIDADE DE FILA, que é
+# a métrica certa para trabalho assíncrono. Escalar worker por CPU é o erro comum:
+# fila parada com CPU ociosa não dispara nada, e o atraso vira incidente de
+# cobertura fiscal (INC-DEMO-01 do painel de incidentes desta demonstração).
+#
+# A métrica da fila vem do próprio worker (OpenTelemetry, métrica de gauge
+# "fila_documentos_por_worker"), é exposta pelo Collector e chega ao HPA pelo
+# adaptador de métricas customizadas (prometheus-adapter ou equivalente livre).
+# O nome aparece também em observabilidade/prometheus-rules.yml.
+#
+#   kubectl apply -f k8s/hpa.yaml
+#   kubectl -n automacao-demo get hpa -w
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: automacao-api-hpa
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: automacao-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: automacao-fiscal
+    demonstracao/geracao: sintetica
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: automacao-api
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      # Busca interativa: subir rápido é mais importante que economizar.
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      # Descer devagar: cada pod frio da API custa um cold start na busca.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: automacao-worker-hpa
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: automacao-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: automacao-fiscal
+    demonstracao/geracao: sintetica
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: automacao-worker
+  minReplicas: 3
+  maxReplicas: 24
+  metrics:
+    - type: Pods
+      pods:
+        # Gauge exportado pelo worker: documentos aguardando na fila da etapa de
+        # extração, dividido pelo número de pods. Alvo: 120 por worker.
+        metric:
+          name: fila_documentos_por_worker
+        target:
+          type: AverageValue
+          averageValue: "120"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+    scaleDown:
+      # Worker tem lifecycle de esvaziamento (terminationGracePeriodSeconds de 180
+      # no deployment): descer rápido cortaria extrações no meio.
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 300

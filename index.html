@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automação de gestão fiscal — demonstração com dados sintéticos</title>
+  <meta name="description" content="Demonstração pública com dados sintéticos de uma aplicação de busca, recuperação e gestão de documentos fiscais em repositório de arquivos corporativo: interface, pipeline, SLIs, observabilidade e arquitetura em Kubernetes.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="author" content="João Renato Alves">
+  <meta name="theme-color" content="#0b0f16">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Automação fiscal — demonstração">
+  <meta property="og:title" content="Automação de gestão fiscal — demonstração com dados sintéticos">
+  <meta property="og:description" content="Interface, pipeline, SLIs e arquitetura de um caso de automação fiscal. Nenhum dado de cliente: tudo sintético e reprodutível.">
+  <meta property="og:url" content="https://jraalves.github.io/automacao/">
+  <meta property="og:image" content="https://jraalves.github.io/automacao/img/demo-card.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://jraalves.github.io/automacao/">
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+  <!-- ======================================================================
+       Faixas fixas no topo. O texto estático já é verdadeiro; app.js apenas
+       enriquece com o que está em data/sinteticos.json.
+       ====================================================================== -->
+  <div class="fixo-topo">
+    <div class="faixa faixa-sintetico" id="faixa-sintetico">
+      <span class="marcador">Demonstração</span>
+      <strong>Demonstração — dados sintéticos, nenhum dado de cliente</strong>
+      <span class="sep">·</span> gerado por <code>tools/gen_data.py</code> com seed fixa
+      <span class="sep">·</span> <a href="#/sobre">o que é real e o que é fictício</a>
+      <span class="sep">·</span> <a href="data/AVISO-SINTETICO.md">aviso em texto</a>
+    </div>
+    <div class="faixa faixa-auth" id="faixa-auth">
+      <span class="marcador">Sem login</span>
+      <strong>a demo roda sem autenticação</strong>
+      <span class="sep">·</span> em produção o acesso passa por oauth2-proxy à frente do Service
+      (arquitetura documentada, não executada aqui)
+      <span class="sep">·</span> <a href="#/arquitetura">ver desenho</a>
+    </div>
+
+    <header class="topo">
+      <div class="marca">
+        <span class="glifo" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6ec1ff" stroke-width="1.6">
+            <path d="M4 7h16M4 12h10M4 17h7"/>
+            <circle cx="18.4" cy="15.6" r="3.6"/>
+            <path d="M18.4 13.4v2.2l1.5 1"/>
+          </svg>
+        </span>
+        <div>
+          <h1 id="titulo-marca">Automação de gestão fiscal — demonstração</h1>
+          <p id="sub-marca">Busca, recuperação e gestão de documentos fiscais em repositório de arquivos corporativo</p>
+        </div>
+      </div>
+      <div class="selos">
+        <span class="selo" id="selo-versao">dados <b>v1.0.0</b></span>
+        <span class="selo" id="selo-seed">seed <b>20260124</b></span>
+        <span class="selo" id="selo-instante">janela encerra em <b>2026-01-24T12:00:00-03:00</b></span>
+        <a class="selo" href="https://github.com/jraalves" rel="noopener noreferrer">código desta demo: github.com/jraalves</a>
+      </div>
+    </header>
+
+    <nav class="abas" role="tablist" aria-label="Seções da demonstração">
+      <button class="aba" role="tab" id="aba-visao-geral" data-rota="visao-geral"
+              aria-controls="vista-visao-geral" aria-selected="true"><span class="numero">01</span>Visão geral</button>
+      <button class="aba" role="tab" id="aba-busca" data-rota="busca"
+              aria-controls="vista-busca" aria-selected="false"><span class="numero">02</span>Busca fiscal</button>
+      <button class="aba" role="tab" id="aba-extracao" data-rota="extracao"
+              aria-controls="vista-extracao" aria-selected="false"><span class="numero">03</span>Extração &amp; workflow</button>
+      <button class="aba" role="tab" id="aba-sli" data-rota="sli"
+              aria-controls="vista-sli" aria-selected="false"><span class="numero">04</span>Cobertura &amp; SLI</button>
+      <button class="aba" role="tab" id="aba-arquitetura" data-rota="arquitetura"
+              aria-controls="vista-arquitetura" aria-selected="false"><span class="numero">05</span>Arquitetura</button>
+      <button class="aba" role="tab" id="aba-sobre" data-rota="sobre"
+              aria-controls="vista-sobre" aria-selected="false"><span class="numero">06</span>Sobre o case</button>
+    </nav>
+  </div>
+
+  <main id="conteudo">
+    <p id="erro-carga" class="erro-carga" hidden></p>
+    <p id="carregando" class="nota-pequena">Carregando <code>data/sinteticos.json</code> (ou o fallback
+      <code>data/dados.js</code> se você abriu este arquivo localmente)…</p>
+    <noscript><div class="erro-carga">As tabelas, filtros e gráficos desta demonstração precisam de
+      JavaScript. O texto das abas <a href="#/arquitetura">Arquitetura</a> e
+      <a href="#/sobre">Sobre o case</a>, porém, continua útil sem script — e o repositório traz
+      os mesmos YAMLs, regras de alerta e manifests comentados.</div></noscript>
+
+    <!-- ====================================================================
+         01 — VISÃO GERAL
+         ==================================================================== -->
+    <section class="vista" id="vista-visao-geral" role="tabpanel" aria-labelledby="aba-visao-geral">
+      <div class="titulo-vista">
+        <h2>Visão geral</h2>
+        <p class="sub">Estado consolidado da demonstração em quatro indicadores e a fila de workflows
+          que move a coleta. Tudo vem de <code>data/sinteticos.json</code>, gerado com seed fixa.</p>
+      </div>
+
+      <div class="grade g-4" id="kpis"></div>
+      <div id="nota-indicadores"></div>
+
+      <div class="grupo">
+        <h3>Fila de workflows</h3>
+        <div class="painel">
+          <header>
+            <h4>Workflows de coleta e reprocessamento</h4>
+            <span class="nota">gatilhos por cron; estado local, sem execução real</span>
+          </header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table id="tabela-workflows">
+                <caption>Um workflow agrupa uma varredura do repositório de origem, a extração em lote,
+                  a publicação no destino e a conferência. Os oito itens abaixo são de demonstração.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Workflow</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Progresso</th>
+                    <th scope="col" class="numero">Documentos</th>
+                    <th scope="col" class="numero">Mensagens na fila</th>
+                    <th scope="col">Gatilho</th>
+                    <th scope="col">Início / próxima execução</th>
+                  </tr>
+                </thead>
+                <tbody id="corpo-workflows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Panorama do pipeline (24 h)</h3>
+        <div class="painel">
+          <header>
+            <h4>Entradas, saídas e falhas por etapa</h4>
+            <span class="nota">detalhe interativo na aba <a href="#/extracao">Extração &amp; workflow</a></span>
+          </header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Etapa</th>
+                    <th scope="col" class="numero">Entradas</th>
+                    <th scope="col" class="numero">Concluídas</th>
+                    <th scope="col" class="numero">Em andamento</th>
+                    <th scope="col" class="numero">Falhas</th>
+                    <th scope="col" class="numero">Mediana</th>
+                    <th scope="col">Composição</th>
+                  </tr>
+                </thead>
+                <tbody id="resumo-pipeline"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Ocorrências e cobertura do mês</h3>
+        <div class="grade g-2">
+          <div class="painel">
+            <header><h4>Três incidentes sintéticos mais recentes</h4>
+              <span class="nota">lista completa na aba <a href="#/sli">Cobertura &amp; SLI</a></span></header>
+            <div class="corpo sem-padding">
+              <div class="envolver-tabela">
+                <table>
+                  <thead><tr><th scope="col">ID</th><th scope="col">Quando</th><th scope="col">Sev.</th>
+                    <th scope="col">Resumo</th><th scope="col" class="numero">MTTR</th><th scope="col"></th></tr></thead>
+                  <tbody id="corpo-incidentes-resumo"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="painel">
+            <header><h4>Cobertura fiscal do mês por empresa demo</h4>
+              <span class="nota">objetivo: 99,0% até D+5</span></header>
+            <div class="corpo sem-padding">
+              <div class="envolver-tabela">
+                <table>
+                  <thead><tr><th scope="col">Empresa (fictícia)</th><th scope="col" class="numero">Esperados</th>
+                    <th scope="col" class="numero">Publicados</th><th scope="col" class="numero">Pendentes</th>
+                    <th scope="col" class="numero">Cobertura</th><th scope="col">Situação</th></tr></thead>
+                  <tbody id="corpo-cobertura-empresa"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         02 — BUSCA FISCAL
+         ==================================================================== -->
+    <section class="vista" id="vista-busca" role="tabpanel" aria-labelledby="aba-busca" hidden>
+      <div class="titulo-vista">
+        <h2>Busca fiscal</h2>
+        <p class="sub">A consulta que o time fiscal usava: filtrar por empresa, período, tipo de documento
+          e status da extração. O filtro roda no navegador, sobre a amostra sintética — nenhuma requisição é feita.</p>
+      </div>
+
+      <div class="painel">
+        <header>
+          <h4>Filtros</h4>
+          <span class="nota" id="contagem-filtro">carregando…</span>
+        </header>
+        <div class="corpo">
+          <form id="filtro-form" class="filtros" autocomplete="off">
+            <div class="campo">
+              <label for="filtro-empresa">Empresa demo</label>
+              <select id="filtro-empresa" data-filtro="empresa"></select>
+            </div>
+            <div class="campo">
+              <label for="filtro-tipo">Tipo de documento</label>
+              <select id="filtro-tipo" data-filtro="tipo"></select>
+            </div>
+            <div class="campo">
+              <label for="filtro-status">Status da extração</label>
+              <select id="filtro-status" data-filtro="status"></select>
+            </div>
+            <div class="campo">
+              <label for="filtro-mes-ini">Referência (de)</label>
+              <select id="filtro-mes-ini" data-filtro="mesIni"></select>
+            </div>
+            <div class="campo">
+              <label for="filtro-mes-fim">Referência (até)</label>
+              <select id="filtro-mes-fim" data-filtro="mesFim"></select>
+            </div>
+            <div class="campo">
+              <label for="campo-texto">Texto (id, número, caminho, trace)</label>
+              <input id="campo-texto" type="search" data-filtro="texto" placeholder="ex.: NF-DEMO-99- ou EMP-DEMO-0007">
+            </div>
+            <div class="botoes">
+              <button class="botao principal" type="submit">Aplicar</button>
+              <button class="botao" type="button" id="filtro-limpar">Limpar filtros</button>
+            </div>
+          </form>
+          <p class="nota-pequena" style="margin-top:10px">
+            Os nomes de empresa são inventados (EMP-DEMO-0001…0008). Nenhum número exibido tem
+            dígito verificador válido de CNPJ ou CPF, e as chaves de acesso não são reproduzidas.
+            Veja <a href="data/AVISO-SINTETICO.md">data/AVISO-SINTETICO.md</a>.
+          </p>
+        </div>
+      </div>
+
+      <div class="busca-grade" style="margin-top:14px">
+        <div class="painel">
+          <header>
+            <h4>Documentos fiscais sintéticos</h4>
+            <span class="nota">clique numa linha para abrir o detalhe; o
+              <code>X-Request-Id</code> da linha leva à vista de correlação</span>
+          </header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table id="tabela-documentos">
+                <caption>Cada linha é um documento de demonstração. As colunas com seta são ordenáveis.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" class="ordenavel" data-coluna="id">Documento <span class="seta-ordem"></span></th>
+                    <th scope="col" class="ordenavel" data-coluna="empresa_id">Empresa <span class="seta-ordem"></span></th>
+                    <th scope="col" class="ordenavel" data-coluna="tipo_rotulo">Tipo <span class="seta-ordem"></span></th>
+                    <th scope="col" class="ordenavel" data-coluna="data_referencia">Referência <span class="seta-ordem"></span></th>
+                    <th scope="col" class="ordenavel" data-coluna="status">Status da extração <span class="seta-ordem"></span></th>
+                    <th scope="col" class="ordenavel" data-coluna="latencia" aria-sort="none">Mediana <span class="seta-ordem"></span></th>
+                    <th scope="col" class="numero">Tent.</th>
+                    <th scope="col">X-Request-Id / trace</th>
+                    <th scope="col" class="ordenavel" data-coluna="data_entrada_repositorio">Entrada no repositório <span class="seta-ordem"></span></th>
+                  </tr>
+                </thead>
+                <tbody id="corpo-documentos"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <aside class="painel detalhe" id="painel-detalhe" aria-live="polite">
+          <header><h4>Detalhe do documento</h4><span class="nota">aguardando dados</span></header>
+          <div class="corpo"><p class="vazio">Selecione uma linha da tabela.</p></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         03 — EXTRAÇÃO & WORKFLOW
+         ==================================================================== -->
+    <section class="vista" id="vista-extracao" role="tabpanel" aria-labelledby="aba-extracao" hidden>
+      <div class="titulo-vista">
+        <h2>Extração &amp; workflow</h2>
+        <p class="sub">O caminho de um arquivo até virar documento consultável: descoberta, ingestão,
+          extração, validação de schema, publicação no repositório de destino e conferência humana.</p>
+      </div>
+
+      <div class="painel">
+        <header>
+          <h4>Pipeline em seis etapas</h4>
+          <span class="nota" id="cabecalho-janela">últimas 24 horas da janela de demonstração</span>
+        </header>
+        <div class="corpo">
+          <div class="pipeline" id="pipeline"></div>
+          <p class="nota-pequena" style="margin-top:14px" id="nota-retry"></p>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Fila de falhas</h3>
+        <div class="painel fila-falhas">
+          <header>
+            <h4>Documentos que pararam em alguma etapa</h4>
+            <span class="nota" id="contador-falhas"></span>
+          </header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table>
+                <caption>Motivos fictícios, mas com as classes de erro que o desenho trata:
+                  schema, OCR, tempo limite, regra de negócio, duplicidade e conflito de ETag.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Documento</th>
+                    <th scope="col">Tipo / número demo</th>
+                    <th scope="col">Classe</th>
+                    <th scope="col">Motivo</th>
+                    <th scope="col" class="numero">Tent.</th>
+                    <th scope="col">Última tentativa</th>
+                    <th scope="col">Próxima ação</th>
+                    <th scope="col">Ação</th>
+                    <th scope="col">Trace</th>
+                  </tr>
+                </thead>
+                <tbody id="corpo-fila-falhas"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div id="estado-local" style="margin-top:12px"></div>
+      </div>
+
+      <div class="grupo">
+        <h3>Contrato de extração</h3>
+        <div class="grade g-2-1">
+          <div class="painel">
+            <header><h4>Campos obrigatórios da extração (schema de demonstração)</h4>
+              <span class="nota">é o que a validação de schema exige antes de publicar</span></header>
+            <div class="corpo sem-padding">
+              <div class="envolver-tabela">
+                <table>
+                  <thead><tr><th scope="col">Campo</th><th scope="col">Origem</th>
+                    <th scope="col">Obrigatório</th><th scope="col">Validação</th></tr></thead>
+                  <tbody id="corpo-schema"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="cartao tom-roxo">
+            <h4>Como o reprocessamento funciona no desenho real</h4>
+            <ul class="lista-notas">
+              <li>A API marca a tentativa e devolve o documento para a fila; o worker consome de novo
+                com backoff exponencial.</li>
+              <li>Falha definitiva vai para um beco sem saída com motivo — é ela que entra no SLI de
+                taxa de erro do worker.</li>
+              <li>Reprocessar nunca regrava por cima de um arquivo publicado: a chave é
+                <code>empresa + tipo + número demo</code>, e o destino é verificado por ETag.</li>
+              <li>Cada reprocessamento gera um novo <code>span</code> no mesmo <code>trace_id</code>,
+                o que permite contar tentativas sem perder o histórico.</li>
+            </ul>
+            <p style="margin-top:10px">O botão <em>Reprocessar</em> desta página não faz nada disso: ele
+              apenas move o item no estado local para você ver o fluxo. Nenhuma chamada de rede é feita.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         04 — COBERTURA & SLI
+         ==================================================================== -->
+    <section class="vista" id="vista-sli" role="tabpanel" aria-labelledby="aba-sli" hidden>
+      <div class="titulo-vista">
+        <h2>Cobertura &amp; SLI</h2>
+        <p class="sub">Como a demonstração mede se o serviço está prestanto o serviço: cobertura fiscal,
+          latência de extração, taxa de erro do worker e o orçamento de erro do mês — todos calculados a
+          partir da série sintética de 26 horas.</p>
+      </div>
+
+      <div class="grade g-4" id="cartoes-sli"></div>
+
+      <div class="grupo">
+        <h3>Orçamento de erro</h3>
+        <div class="painel">
+          <header><h4>Consumo no mês de referência</h4>
+            <span class="nota">SLO de referência: taxa de erro do worker ≤ 0,5% em 30 dias</span></header>
+          <div class="corpo" id="medidor-orcamento"></div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Séries</h3>
+        <div class="painel">
+          <header><h4>Burn rate multi-janela (1 h / 6 h / 24 h)</h4>
+            <span class="nota">eixo vertical em escala logarítmica; 1x = ritmo exato do orçamento</span></header>
+          <div class="corpo" id="grafico-burn"></div>
+        </div>
+        <div class="grade g-2" style="margin-top:14px">
+          <div class="painel">
+            <header><h4>SLI de cobertura fiscal</h4>
+              <span class="nota">documentos publicados ÷ esperados, por hora</span></header>
+            <div class="corpo" id="grafico-cobertura"></div>
+          </div>
+          <div class="painel">
+            <header><h4>SLI de latência de extração</h4>
+              <span class="nota">p50 e p95 por hora, objetivo p95 ≤ 12 s</span></header>
+            <div class="corpo" id="grafico-latencia"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Cobertura por empresa demo</h3>
+        <div class="painel">
+          <header><h4>Mês de referência por empresa fictícia</h4>
+            <span class="nota">o que o SLI de cobertura significa na prática</span></header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table>
+                <thead><tr><th scope="col">Empresa (fictícia)</th><th scope="col" class="numero">Esperados</th>
+                  <th scope="col" class="numero">Publicados</th><th scope="col" class="numero">Pendentes</th>
+                  <th scope="col" class="numero">Cobertura</th><th scope="col">Situação</th></tr></thead>
+                <tbody id="corpo-cobertura-sli"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Incidentes sintéticos</h3>
+        <div class="painel">
+          <header><h4>Últimos 8 incidentes de demonstração</h4>
+            <span class="nota">MTTD/MTTR são números inventados para mostrar o formato do registro</span></header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table>
+                <thead><tr><th scope="col">ID</th><th scope="col">Sev.</th><th scope="col">Resumo</th>
+                  <th scope="col">Início</th><th scope="col" class="numero">MTTD</th>
+                  <th scope="col" class="numero">MTTR</th><th scope="col">Detecção</th>
+                  <th scope="col">Causa sintética</th><th scope="col">Orçamento</th></tr></thead>
+                <tbody id="corpo-incidentes"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <p class="nota-pequena" style="margin-top:10px" id="nota-incidentes"></p>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         05 — ARQUITETURA
+         ==================================================================== -->
+    <section class="vista" id="vista-arquitetura" role="tabpanel" aria-labelledby="aba-arquitetura" hidden>
+      <div class="titulo-vista">
+        <h2>Arquitetura</h2>
+        <p class="sub">Desenho de produção <strong>documentado</strong>, não executado por esta página.
+          Cada caixa tem link para o arquivo correspondente no repositório — os YAMLs estão aqui,
+          legíveis e comentados.</p>
+      </div>
+
+      <div class="painel">
+        <header>
+          <h4>Fluxo completo: do navegador ao repositório de arquivos, com telemetria e GitOps</h4>
+          <span class="nota">SVG desenhado à mão dentro deste arquivo; nenhuma biblioteca de diagrama</span>
+        </header>
+        <div class="corpo">
+          <div class="envolver-tabela">
+            <svg class="diagrama" viewBox="0 0 1240 860" xmlns="http://www.w3.org/2000/svg" role="img"
+                 aria-label="Diagrama com navegador, Ingress, oauth2-proxy, Service, pods FastAPI, fila, workers, MongoDB, repositório de arquivos corporativo, OTel Collector, Prometheus, Loki, Tempo, Alertmanager, Grafana e Argo CD sincronizando manifests">
+              <defs>
+                <marker id="ponta-azul" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#6ec1ff"/></marker>
+                <marker id="ponta-roxo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#bc8cff"/></marker>
+                <marker id="ponta-verde" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#3fb950"/></marker>
+                <marker id="ponta-ambar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#d29922"/></marker>
+              </defs>
+
+              <!-- região do cluster e rótulos de fora do cluster -->
+              <rect class="regiao" x="160" y="56" width="900" height="734" rx="12"/>
+              <text class="regiao-titulo" x="176" y="80">CLUSTER KUBERNETES (GENÉRICO — SEM REFERÊNCIA A AMBIENTE REAL)</text>
+              <text class="regiao-titulo" x="16" y="240">FORA DO CLUSTER</text>
+              <text class="regiao-titulo" x="1090" y="240">FORA DO CLUSTER</text>
+
+              <!-- ============ banda GitOps (topo) ============ -->
+              <g>
+                <title>Manifests versionados em Git: a pasta k8s/ deste próprio repositório</title>
+                <rect class="caixa" x="168" y="96" width="180" height="64" rx="8"/>
+                <text class="no-titulo" x="258" y="122" text-anchor="middle">Git (manifests)</text>
+                <text class="no-sub" x="258" y="138" text-anchor="middle">pasta k8s/ · 1 app por ambiente</text>
+                <text class="no-sub" x="258" y="151" text-anchor="middle">revisão humana antes do merge</text>
+              </g>
+              <path class="seta-gitops" d="M348,128 H364" marker-end="url(#ponta-ambar)"/>
+              <g>
+                <title>Argo CD sincroniza os manifests (GitOps documentado, não executado aqui)</title>
+                <rect class="caixa" x="364" y="96" width="170" height="64" rx="8"/>
+                <text class="no-titulo" x="449" y="122" text-anchor="middle">Argo CD (GitOps)</text>
+                <text class="no-sub" x="449" y="138" text-anchor="middle">sync periódico · diff visível</text>
+                <text class="no-sub" x="449" y="151" text-anchor="middle">prune desligado por padrão</text>
+              </g>
+              <g>
+                <title>NetworkPolicy default-deny: só o tráfego listado é permitido</title>
+                <rect class="regiao" x="560" y="96" width="220" height="64" rx="8"/>
+                <text class="no-titulo" x="670" y="122" text-anchor="middle">NetworkPolicy default-deny</text>
+                <text class="no-sub" x="670" y="138" text-anchor="middle">proxy → api · worker → mongo</text>
+                <text class="no-sub" x="670" y="151" text-anchor="middle">tudo → OTel Collector:4317</text>
+              </g>
+              <g>
+                <title>Policy de disruption e autoescala por profundidade de fila</title>
+                <rect class="regiao" x="800" y="96" width="180" height="64" rx="8"/>
+                <text class="no-titulo" x="890" y="122" text-anchor="middle">PDB + HPA</text>
+                <text class="no-sub" x="890" y="138" text-anchor="middle">minAvailable 2 de 3</text>
+                <text class="no-sub" x="890" y="151" text-anchor="middle">4 → 12 pods pela fila</text>
+              </g>
+
+              <!-- GitOps desce para os workloads -->
+              <path class="seta-gitops" d="M449,160 V196 H665 V250" marker-end="url(#ponta-ambar)"/>
+              <path class="seta-gitops" d="M449,196 H982 V250" marker-end="url(#ponta-ambar)"/>
+              <text class="rotulo-seta" x="470" y="190">ArgoCD sincroniza Deployment/Service</text>
+
+              <!-- ============ cadeia principal (HTTP) ============ -->
+              <g>
+                <title>Navegador do usuário da demonstração — aqui é HTML+CSS+JS puro</title>
+                <rect class="caixa" x="16" y="300" width="124" height="68" rx="8"/>
+                <text class="no-titulo" x="78" y="326" text-anchor="middle">Navegador</text>
+                <text class="no-sub" x="78" y="342" text-anchor="middle">interface do fiscal</text>
+                <text class="no-sub" x="78" y="355" text-anchor="middle">nesta demo: HTML+CSS+JS</text>
+              </g>
+              <path class="seta" d="M140,334 H168" marker-end="url(#ponta-azul)"/>
+              <text class="rotulo-seta" x="122" y="324">TLS 443</text>
+
+              <a href="k8s/ingress.yaml">
+                <g><title>Ingress: único ponto de entrada público, host fictício automacao-demo.example.com</title>
+                  <rect class="caixa" x="168" y="300" width="118" height="68" rx="8"/>
+                  <text class="no-titulo" x="227" y="326" text-anchor="middle">Ingress</text>
+                  <text class="no-sub" x="227" y="342" text-anchor="middle">automacao-demo</text>
+                  <text class="no-sub" x="227" y="355" text-anchor="middle">.example.com (fictício)</text>
+                </g>
+              </a>
+              <path class="seta" d="M286,334 H302" marker-end="url(#ponta-azul)"/>
+
+              <a href="k8s/oauth2-proxy.yaml">
+                <g><title>oauth2-proxy: única rota exposta; sem cookie válido o backend nem é chamado</title>
+                  <rect class="caixa" x="302" y="300" width="130" height="68" rx="8"/>
+                  <text class="no-titulo" x="367" y="326" text-anchor="middle">oauth2-proxy</text>
+                  <text class="no-sub" x="367" y="342" text-anchor="middle">sessão + allow list</text>
+                  <text class="no-sub" x="367" y="355" text-anchor="middle">não executado aqui</text>
+                </g>
+              </a>
+              <path class="seta" d="M432,334 H448" marker-end="url(#ponta-azul)"/>
+              <text class="rotulo-seta" x="398" y="324">cookie ok</text>
+
+              <a href="k8s/service-api.yaml">
+                <g><title>Service ClusterIP: nunca exposto diretamente</title>
+                  <rect class="caixa" x="448" y="300" width="118" height="68" rx="8"/>
+                  <text class="no-titulo" x="507" y="326" text-anchor="middle">Service</text>
+                  <text class="no-sub" x="507" y="342" text-anchor="middle">ClusterIP</text>
+                  <text class="no-sub" x="507" y="355" text-anchor="middle">porta 8000</text>
+                </g>
+              </a>
+              <path class="seta" d="M566,334 H582" marker-end="url(#ponta-azul)"/>
+
+              <!-- deployment da API -->
+              <a href="k8s/deployment-api.yaml">
+                <g><title>Deployment da API FastAPI: leitores de busca, sem trabalho longo</title>
+                  <rect class="caixa" x="582" y="250" width="166" height="170" rx="10"/>
+                  <text class="no-titulo" x="665" y="272" text-anchor="middle">Deployment · api</text>
+                  <rect class="caixa-suave" x="598" y="284" width="134" height="32" rx="6"/>
+                  <text class="no-sub" x="665" y="304" text-anchor="middle">FastAPI · pod a</text>
+                  <rect class="caixa-suave" x="598" y="324" width="134" height="32" rx="6"/>
+                  <text class="no-sub" x="665" y="344" text-anchor="middle">FastAPI · pod b</text>
+                  <rect class="caixa-suave" x="598" y="364" width="134" height="32" rx="6"/>
+                  <text class="no-sub" x="665" y="384" text-anchor="middle">FastAPI · pod c</text>
+                </g>
+              </a>
+              <path class="seta" d="M748,334 H764" marker-end="url(#ponta-azul)"/>
+              <text class="rotulo-seta" x="726" y="324">enfileira</text>
+
+              <g>
+                <title>Fila de trabalho: desacopla a requisição HTTP do trabalho longo</title>
+                <rect class="caixa" x="764" y="300" width="132" height="68" rx="8"/>
+                <text class="no-titulo" x="830" y="326" text-anchor="middle">fila de trabalho</text>
+                <text class="no-sub" x="830" y="342" text-anchor="middle">pedidos de extração</text>
+                <text class="no-sub" x="830" y="355" text-anchor="middle">retry + beco sem saída</text>
+              </g>
+              <path class="seta" d="M896,334 H912" marker-end="url(#ponta-azul)"/>
+
+              <!-- deployment de workers -->
+              <a href="k8s/deployment-worker.yaml">
+                <g><title>Workers de extração: CPU/memória próprias, escalam pela fila</title>
+                  <rect class="caixa" x="912" y="250" width="140" height="170" rx="10"/>
+                  <text class="no-titulo" x="982" y="272" text-anchor="middle">Deployment · worker</text>
+                  <rect class="caixa-suave" x="926" y="284" width="112" height="32" rx="6"/>
+                  <text class="no-sub" x="982" y="304" text-anchor="middle">parser XML</text>
+                  <rect class="caixa-suave" x="926" y="324" width="112" height="32" rx="6"/>
+                  <text class="no-sub" x="982" y="344" text-anchor="middle">OCR de PDF</text>
+                  <rect class="caixa-suave" x="926" y="364" width="112" height="32" rx="6"/>
+                  <text class="no-sub" x="982" y="384" text-anchor="middle">publicação</text>
+                </g>
+              </a>
+
+              <!-- repositório de arquivos (fora do cluster) -->
+              <g>
+                <title>Repositório de arquivos corporativo (M365 Drive-like, genérico): origem e destino</title>
+                <rect class="caixa" x="1090" y="286" width="130" height="96" rx="8"/>
+                <text class="no-titulo" x="1155" y="312" text-anchor="middle">Repositório</text>
+                <text class="no-titulo" x="1155" y="328" text-anchor="middle">de arquivos</text>
+                <text class="no-sub" x="1155" y="346" text-anchor="middle">corporativo genérico</text>
+                <text class="no-sub" x="1155" y="360" text-anchor="middle">(M365 Drive-like)</text>
+                <text class="no-sub" x="1155" y="374" text-anchor="middle">origem + destino</text>
+              </g>
+              <path class="seta seta-dados" d="M1052,334 H1090" marker-end="url(#ponta-roxo)"/>
+              <text class="rotulo-seta" x="1006" y="324">baixa / publica</text>
+
+              <!-- ============ camada de dados (roxo) ============ -->
+              <a href="k8s/postgres-or-mongo-statefulset.yaml">
+                <g><title>MongoDB StatefulSet: documentos, auditoria e estado dos workflows</title>
+                  <rect class="caixa" x="582" y="470" width="166" height="70" rx="8"/>
+                  <text class="no-titulo" x="665" y="494" text-anchor="middle">MongoDB · StatefulSet</text>
+                  <text class="no-sub" x="665" y="510" text-anchor="middle">documentos + auditoria</text>
+                  <text class="no-sub" x="665" y="524" text-anchor="middle">1 volume por réplica</text>
+                </g>
+              </a>
+              <path class="seta seta-dados" d="M665,420 V470" marker-end="url(#ponta-roxo)"/>
+              <text class="rotulo-seta" x="672" y="450">lê / grava</text>
+              <path class="seta seta-dados" d="M982,420 V505 H748" marker-end="url(#ponta-roxo)"/>
+              <text class="rotulo-seta" x="800" y="498">estado do trabalho</text>
+
+              <!-- secret montado read-only (anotação) -->
+              <g>
+                <title>Secret do conector montado em readOnly: true, sem write, sem execute</title>
+                <rect class="caixa-suave" x="800" y="470" width="210" height="58" rx="8"/>
+                <text class="no-titulo" x="905" y="492" text-anchor="middle">Secret (readOnly)</text>
+                <text class="no-sub" x="905" y="508" text-anchor="middle">montado no worker · sem</text>
+                <text class="no-sub" x="905" y="521" text-anchor="middle">escrita no volume</text>
+              </g>
+              <path class="seta seta-dados" d="M905,470 V420" marker-end="url(#ponta-roxo)"/>
+
+              <!-- ============ telemetria (verde) ============ -->
+              <path class="seta seta-telemetria" d="M582,404 H540 V560 H150 V640 H168" marker-end="url(#ponta-verde)"/>
+              <path class="seta seta-telemetria" d="M1052,398 H1058 V580 H140 V656 H168" marker-end="url(#ponta-verde)"/>
+              <text class="rotulo-seta" x="258" y="552">OTLP 4317: traces, logs e métricas (mesmo trace_id do X-Request-Id)</text>
+
+              <a href="k8s/configmap-otel.yaml">
+                <g><title>OpenTelemetry Collector: recebe OTLP e redistribui para as três backends</title>
+                  <rect class="caixa" x="168" y="616" width="150" height="68" rx="8"/>
+                  <text class="no-titulo" x="243" y="642" text-anchor="middle">OTel Collector</text>
+                  <text class="no-sub" x="243" y="658" text-anchor="middle">pipeline demo:</text>
+                  <text class="no-sub" x="243" y="671" text-anchor="middle">otlp → prom/loki/tempo</text>
+                </g>
+              </a>
+              <path class="seta seta-telemetria" d="M318,632 H332 V600 H414 V616" marker-end="url(#ponta-verde)"/>
+              <path class="seta seta-telemetria" d="M318,644 H340 V604 H569 V616" marker-end="url(#ponta-verde)"/>
+              <path class="seta seta-telemetria" d="M318,656 H348 V608 H719 V616" marker-end="url(#ponta-verde)"/>
+
+              <a href="observabilidade/prometheus-rules.yml">
+                <g><title>Prometheus: regras de SLI, burn rate e alertas</title>
+                  <rect class="caixa" x="350" y="616" width="128" height="68" rx="8"/>
+                  <text class="no-titulo" x="414" y="642" text-anchor="middle">Prometheus</text>
+                  <text class="no-sub" x="414" y="658" text-anchor="middle">regras de SLI</text>
+                  <text class="no-sub" x="414" y="671" text-anchor="middle">burn rate 1h/6h/24h</text>
+                </g>
+              </a>
+              <a href="observabilidade/loki-logql-exemplos.md">
+                <g><title>Loki: logs em JSON com trace_id e request_id indexados</title>
+                  <rect class="caixa" x="510" y="616" width="118" height="68" rx="8"/>
+                  <text class="no-titulo" x="569" y="642" text-anchor="middle">Loki</text>
+                  <text class="no-sub" x="569" y="658" text-anchor="middle">logs + trace_id</text>
+                  <text class="no-sub" x="569" y="671" text-anchor="middle">LogQL na aba correlação</text>
+                </g>
+              </a>
+              <a href="observabilidade/otel-collector-config.yaml">
+                <g><title>Tempo: traces distribuídos consultados pelo botão da interface</title>
+                  <rect class="caixa" x="660" y="616" width="118" height="68" rx="8"/>
+                  <text class="no-titulo" x="719" y="642" text-anchor="middle">Tempo</text>
+                  <text class="no-sub" x="719" y="658" text-anchor="middle">traces OTLP</text>
+                  <text class="no-sub" x="719" y="671" text-anchor="middle">waterfall por request</text>
+                </g>
+              </a>
+              <path class="seta seta-telemetria" d="M414,684 V716" marker-end="url(#ponta-verde)"/>
+              <a href="observabilidade/alertmanager-routing.yml">
+                <g><title>Alertmanager: rotas por severidade e janela de queima</title>
+                  <rect class="caixa" x="350" y="716" width="128" height="68" rx="8"/>
+                  <text class="no-titulo" x="414" y="742" text-anchor="middle">Alertmanager</text>
+                  <text class="no-sub" x="414" y="758" text-anchor="middle">página S1</text>
+                  <text class="no-sub" x="414" y="771" text-anchor="middle">ticket S2/S3</text>
+                </g>
+              </a>
+              <path class="seta seta-telemetria" d="M450,684 L830,730" marker-end="url(#ponta-verde)"/>
+              <path class="seta seta-telemetria" d="M569,684 L830,752" marker-end="url(#ponta-verde)"/>
+              <path class="seta seta-telemetria" d="M719,684 L830,770" marker-end="url(#ponta-verde)"/>
+              <a href="observabilidade/dashboards/grafana-demo.json">
+                <g><title>Grafana: painel desta demonstração (JSON versionado no repositório)</title>
+                  <rect class="caixa" x="830" y="716" width="148" height="68" rx="8"/>
+                  <text class="no-titulo" x="904" y="742" text-anchor="middle">Grafana</text>
+                  <text class="no-sub" x="904" y="758" text-anchor="middle">consulta métrica, log</text>
+                  <text class="no-sub" x="904" y="771" text-anchor="middle">e trace no mesmo painel</text>
+                </g>
+              </a>
+
+              <text class="regiao-titulo" x="168" y="812">ESTA PÁGINA É ESTÁTICA: NENHUM FLUXO ACIMA É EXECUTADO PELO SITE</text>
+              <text class="no-sub" x="168" y="832">As setas descrevem o desenho documentado do caso. A interface que você vê consome apenas
+                data/sinteticos.json e não abre conexão com Prometheus, Loki, Tempo, Mongo nem com o repositório de arquivos.</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Legenda do diagrama</h3>
+        <div class="grade g-2">
+          <div class="painel">
+            <header><h4>Cores das conexões</h4><span class="nota">o mesmo vocabulário do CSS</span></header>
+            <div class="corpo">
+              <div class="legenda">
+                <span><i style="background:#6ec1ff"></i> chamadas HTTP/síncronas do usuário</span>
+                <span><i style="background:#bc8cff"></i> dados: arquivos, documentos, estado</span>
+                <span><i style="background:#3fb950"></i> telemetria OTLP (trace, log, métrica)</span>
+                <span><i style="background:#d29922"></i> GitOps: Argo CD aplicando manifests</span>
+              </div>
+              <ul class="lista-notas" style="margin-top:12px">
+                <li>Retângulos sólidos = carga de trabalho ou serviço. Retângulos tracejados = política
+                  (NetworkPolicy, PDB/HPA) ou anotação.</li>
+                <li>Traço contínuo = caminho de requisição. Traço pontilhado = caminho assíncrono
+                  (telemetria e sincronização).</li>
+                <li>Caixas fora do tracejado do cluster ficam em outro domínio: o navegador e o
+                  repositório de arquivos corporativo.</li>
+                <li>Todo host citado é <code>.example.com</code>; não existe ambiente real por trás.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="cartao tom-info">
+            <h4>O que mudou do original para este desenho</h4>
+            <ul class="lista-notas">
+              <li>O caso original era React + Python/FastAPI + MongoDB rodando em contêineres; a UI,
+                a API e o worker de extração são os mesmos três papéis deste diagrama.</li>
+              <li>A evolução para contêineres e orquestração adicionou: leitura de configuração por
+                ambiente, sondagens, e a separação API/worker que você vê aqui.</li>
+              <li>A camada de borda (Ingress + proxy de autenticação) e a observabilidade OTLP fazem
+                parte do desenho documentado desta demonstração, não de uma versão executada.</li>
+              <li>Nomes de produto, domínio e tenant do ambiente original foram substituídos por
+                descrições genéricas — é por isso que o repositório de arquivos aparece como
+                “M365 Drive-like, genérico”.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Arquivos que sustentam o desenho</h3>
+        <div class="painel">
+          <header><h4>Manifests e configuração de observabilidade versionados aqui</h4>
+            <span class="nota">abrir um arquivo mostra o texto-fonte no navegador; em
+              <a href="https://github.com/jraalves/fiscal-automation-case" rel="noopener noreferrer">o case</a>
+              há a explicação estendida</span></header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table>
+                <thead><tr><th scope="col">Arquivo</th><th scope="col">Papel no desenho</th>
+                  <th scope="col">O que você deve ler nele</th></tr></thead>
+                <tbody>
+                  <tr><td><code><a href="k8s/namespace.yaml">k8s/namespace.yaml</a></code></td>
+                    <td>Isolamento do ambiente de demonstração</td>
+                    <td>rótulos usados por NetworkPolicy e pelas regras de SLI</td></tr>
+                  <tr><td><code><a href="k8s/deployment-api.yaml">k8s/deployment-api.yaml</a></code></td>
+                    <td>API FastAPI de busca e gestão</td>
+                    <td>sondagens, limites, seccomp, filesystem read-only</td></tr>
+                  <tr><td><code><a href="k8s/deployment-worker.yaml">k8s/deployment-worker.yaml</a></code></td>
+                    <td>Workers de extração e publicação</td>
+                    <td>como o secret entra montado read-only e por que a fila escala</td></tr>
+                  <tr><td><code><a href="k8s/service-api.yaml">k8s/service-api.yaml</a></code></td>
+                    <td>Service ClusterIP da API</td>
+                    <td>o Service não é exposto: quem publica a rota é o Ingress</td></tr>
+                  <tr><td><code><a href="k8s/ingress.yaml">k8s/ingress.yaml</a></code></td>
+                    <td>Borda TLS e roteamento por path</td>
+                    <td>host fictício e anotações de rate limit</td></tr>
+                  <tr><td><code><a href="k8s/oauth2-proxy.yaml">k8s/oauth2-proxy.yaml</a></code></td>
+                    <td>Autenticação na borda</td>
+                    <td>cookie de sessão, allow list, e o que fica atrás dele</td></tr>
+                  <tr><td><code><a href="k8s/secret-template.yaml">k8s/secret-template.yaml</a></code></td>
+                    <td>Modelo de credencial do conector</td>
+                    <td>todos os valores são <code>&lt;CHANGE_ME&gt;</code> — nada real aqui</td></tr>
+                  <tr><td><code><a href="k8s/networkpolicy.yaml">k8s/networkpolicy.yaml</a></code></td>
+                    <td>Allow list de tráfego pod a pod</td>
+                    <td>default-deny + as quatro liberações do diagrama</td></tr>
+                  <tr><td><code><a href="k8s/pdb.yaml">k8s/pdb.yaml</a></code></td>
+                    <td>Policy de disruption</td>
+                    <td>por que API e worker têm orçamentos diferentes</td></tr>
+                  <tr><td><code><a href="k8s/hpa.yaml">k8s/hpa.yaml</a></code></td>
+                    <td>Autoescala horizontal</td>
+                    <td>métrica de profundidade de fila em vez de CPU</td></tr>
+                  <tr><td><code><a href="k8s/configmap-otel.yaml">k8s/configmap-otel.yaml</a></code></td>
+                    <td>Collector no cluster</td>
+                    <td>recebe OTLP e distribui para as três backends</td></tr>
+                  <tr><td><code><a href="k8s/postgres-or-mongo-statefulset.yaml">k8s/postgres-or-mongo-statefulset.yaml</a></code></td>
+                    <td>Camada de dados</td>
+                    <td>o original usava Mongo; o arquivo explica a troca por Postgres</td></tr>
+                  <tr><td><code><a href="k8s/README.md">k8s/README.md</a></code></td>
+                    <td>Como aplicar e o que <em>não</em> fazer</td>
+                    <td>ordem de aplicação, variáveis e armadilhas comuns</td></tr>
+                  <tr><td><code><a href="observabilidade/prometheus-rules.yml">observabilidade/prometheus-rules.yml</a></code></td>
+                    <td>Regras de SLI e burn rate</td>
+                    <td>as mesmas fórmulas dos gráficos desta página</td></tr>
+                  <tr><td><code><a href="observabilidade/alertmanager-routing.yml">observabilidade/alertmanager-routing.yml</a></code></td>
+                    <td>Roteamento e inibição de alertas</td>
+                    <td>queima 14,4x pagina; 1x vira revisão semanal</td></tr>
+                  <tr><td><code><a href="observabilidade/otel-collector-config.yaml">observabilidade/otel-collector-config.yaml</a></code></td>
+                    <td>Configuração do Collector (recebedor/rotas)</td>
+                    <td>atributos que viram rótulos de métrica e campos de log</td></tr>
+                  <tr><td><code><a href="observabilidade/loki-logql-exemplos.md">observabilidade/loki-logql-exemplos.md</a></code></td>
+                    <td>Consultas LogQL de correlação</td>
+                    <td>do <code>X-Request-Id</code> da interface ao <code>trace_id</code></td></tr>
+                  <tr><td><code><a href="observabilidade/dashboards/grafana-demo.json">observabilidade/dashboards/grafana-demo.json</a></code></td>
+                    <td>Painel pronto para importar</td>
+                    <td>JSON validado pelo <code>tools/validate.py</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Decisões de projeto</h3>
+        <div class="painel">
+          <header><h4>Por que o desenho é assim</h4>
+            <span class="nota">ADRs completos em <a href="docs/decisoes/">docs/decisoes/</a></span></header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table>
+                <caption>Nenhuma dessas decisões exige um fornecedor específico; todas são
+                  ferramentas livres e abertas.</caption>
+                <thead><tr><th scope="col">Decisão</th><th scope="col">Motivo prático</th>
+                  <th scope="col">Custo aceito</th><th scope="col">Referência</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td><b>Ingress na borda, em vez de expor o Service</b></td>
+                    <td>Um único lugar para TLS, rate limit, cabeçalhos de segurança e para o proxy de
+                      autenticação. O Service continua ClusterIP: se o Ingress cair, nada vira público.</td>
+                    <td>Mais uma camada para operar e uma dependência de controller no cluster.</td>
+                    <td><a href="docs/decisoes/0001-borda-com-ingress-e-oauth2-proxy.md">ADR 0001</a> ·
+                      <a href="k8s/ingress.yaml">ingress.yaml</a></td>
+                  </tr>
+                  <tr>
+                    <td><b>oauth2-proxy à frente do Service</b></td>
+                    <td>A aplicação não precisa implementar sessão/SSO para ficar atrás de
+                      autenticação; a allow list fica fora do código de negócio.</td>
+                    <td>Cookie extra, e o time precisa entender o fluxo de logout.</td>
+                    <td><a href="k8s/oauth2-proxy.yaml">oauth2-proxy.yaml</a> ·
+                      <a href="#/sobre">nota de privacidade</a></td>
+                  </tr>
+                  <tr>
+                    <td><b>Secret montado read-only</b></td>
+                    <td>Credencial de um repositório de arquivos corporativo não pode ser escrita nem
+                      executada pelo processo; <code>readOnly: true</code> e volume <code>tmpfs</code>
+                      limitam o estrago de um RCE.</td>
+                    <td>Precisa de um mecanismo de rotação fora do pod (o arquivo modela o formato).</td>
+                    <td><a href="k8s/secret-template.yaml">secret-template.yaml</a></td>
+                  </tr>
+                  <tr>
+                    <td><b>NetworkPolicy default-deny</b></td>
+                    <td>O pod da API fala com Mongo e com o conector; nada mais deveria conseguir.
+                      Converte “um pod comprometido alcança a rede toda” em lista explícita.</td>
+                    <td>Toda nova dependência exige uma liberação escrita e revisada.</td>
+                    <td><a href="k8s/networkpolicy.yaml">networkpolicy.yaml</a></td>
+                  </tr>
+                  <tr>
+                    <td><b>Workers desacoplados da API</b></td>
+                    <td>Extração e OCR são lentos e comem CPU; a busca interativa precisa de p95
+                      baixo. Separar permite escalar cada um pela sua métrica e reiniciar worker sem
+                      derrubar a UI.</td>
+                    <td>Eventual consistência: um documento publicado some na busca com atraso.</td>
+                    <td><a href="docs/decisoes/0002-workers-desacoplados-da-api.md">ADR 0002</a> ·
+                      <a href="k8s/deployment-worker.yaml">deployment-worker.yaml</a></td>
+                  </tr>
+                  <tr>
+                    <td><b>Publicar dados sintéticos, não o código original</b></td>
+                    <td>O código do cliente não pode ser aberto. Uma demonstração reprodutível mostra
+                      a mesma competência sem violar confidencialidade.</td>
+                    <td>Nada aqui prova performance em ambiente real — e a página diz isso.</td>
+                    <td><a href="docs/decisoes/0003-dados-sinteticos-em-vez-do-codigo-original.md">ADR 0003</a> ·
+                      <a href="data/AVISO-SINTETICO.md">aviso sintético</a></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         06 — SOBRE O CASE
+         ==================================================================== -->
+    <section class="vista" id="vista-sobre" role="tabpanel" aria-labelledby="aba-sobre" hidden>
+      <div class="titulo-vista">
+        <h2>Sobre o case</h2>
+        <p class="sub">Quem fez, o que é real, o que é inventado, quais ferramentas usam e por que
+          existem páginas assim — escritas de forma que um leitor técnico consiga conferir tudo.</p>
+      </div>
+
+      <div class="contraste-demo">
+        <div class="cartao tom-ok">
+          <h4>É demonstração fiel (desenho real)</h4>
+          <ul id="real-lista"></ul>
+          <p style="margin-top:10px">Os arquivos de <code>k8s/</code> e <code>observabilidade/</code>
+            deste repositório são a mesma classe de artefato que se escreve num trabalho real: entram
+            em revisão, são versionados e têm um dono.</p>
+        </div>
+        <div class="cartao tom-alerta">
+          <h4>É ficção controlada (dados)</h4>
+          <ul id="falso-lista"></ul>
+          <p style="margin-top:10px">Toda a camada de dados vem de um script com seed fixa.
+            Reproduza você mesmo:</p>
+          <div class="codigo" id="como-reproduzir" style="margin-top:8px"></div>
+          <p class="nota-pequena" style="margin-top:8px">Depois disso, <code>data/sinteticos.json</code>
+            deve ser idêntico byte a byte ao que está publicado. O CI roda exatamente essa comparação
+            (<a href="README.md">veja o workflow</a>).</p>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Pilha</h3>
+        <div class="pilha">
+          <div class="camada"><b>Interface</b><span>React no caso original; aqui HTML + CSS + JS puro,
+            sem build</span></div>
+          <div class="camada"><b>API</b><span>Python / FastAPI, contrato aberto, sondagens de
+            leitura e escrita</span></div>
+          <div class="camada"><b>Dados</b><span>MongoDB no original; o desenho alternativo com
+            Postgres está comentado em <code>k8s/</code></span></div>
+          <div class="camada"><b>Trabalho assíncrono</b><span>Workers de extração, OCR e publicação
+            em Deployment próprio</span></div>
+          <div class="camada"><b>Contêineres</b><span>Imagens sem root, filesystem read-only,
+            base mínima</span></div>
+          <div class="camada"><b>Orquestração</b><span>Kubernetes gerenciado (estilo EKS),
+            HPA, PDB, NetworkPolicy</span></div>
+          <div class="camada"><b>Borda</b><span>Ingress + oauth2-proxy; Service nunca exposto</span></div>
+          <div class="camada"><b>GitOps</b><span>Argo CD aplicando manifests versionados</span></div>
+          <div class="camada"><b>Telemetria</b><span>OpenTelemetry: traces, métricas e logs com o
+            mesmo <code>trace_id</code></span></div>
+          <div class="camada"><b>Backend de observabilidade</b><span>Prometheus, Alertmanager, Loki,
+            Tempo, Grafana</span></div>
+        </div>
+        <p class="nota-pequena" style="margin-top:12px">Tudo acima é software livre e aberto. Esta
+          página não depende de nenhum serviço de terceiros: sem CDN, sem npm, sem fonte externa —
+          abra o <code>index.html</code> local e ele funciona offline.</p>
+      </div>
+
+      <div class="grupo">
+        <h3>Escala — ordem de grandeza ilustrativa</h3>
+        <div class="painel">
+          <header><h4>Proporção do problema, não medição de ambiente</h4>
+            <span class="nota" id="escala-aviso"></span></header>
+          <div class="corpo sem-padding">
+            <div class="envolver-tabela">
+              <table>
+                <thead><tr><th scope="col">O quê</th><th scope="col" class="numero">Faixa ilustrativa</th>
+                  <th scope="col">Nota</th></tr></thead>
+                <tbody id="escala-itens"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Privacidade e o que não está aqui</h3>
+        <div class="grade g-2">
+          <div class="cartao">
+            <h4>Removido de propósito</h4>
+            <ul class="lista-notas">
+              <li>Nomes de clientes, empregadores, marcas de empresas com as quais trabalhei e
+                domínios corporativos.</li>
+              <li>URLs internas, endereços IP reais, nomes de arquivos reais e caminhos de pastas reais.</li>
+              <li>CNPJ, CPF, inscrição estadual, chave de acesso de documento fiscal, qualquer
+                número que passe em dígito verificador.</li>
+              <li>Credenciais, tokens, chaves privadas, certificados, <em>cookies</em> de sessão.</li>
+              <li>Conteúdo de documentos fiscais reais e qualquer dado pessoal de terceiros.</li>
+              <li>Telemetria real, nomes de times, nomes de pessoas e tickets internos.</li>
+            </ul>
+          </div>
+          <div class="cartao tom-info">
+            <h4>Substituído por</h4>
+            <ul class="lista-notas">
+              <li>Identificadores prefixados (<code>EMP-DEMO-…</code>, <code>DOC-FISCAL-SINT-…</code>,
+                <code>NF-DEMO-…</code>) que não passam em nenhuma validação de documento fiscal.</li>
+              <li>Um repositório de arquivos descrito de forma genérica (“M365 Drive-like”), com
+                caminhos de exemplo sob <code>/Demonstracao-Fiscal/</code>.</li>
+              <li>Hosts <code>.example.com</code> e um namespace <code>automacao-demo</code>.</li>
+              <li>Traces, logs, métricas e incidentes gerados por script, com a fórmula registrada.</li>
+              <li>Um verificador automático (<code>tools/leak_check.py</code>) que roda no CI e barra
+                regressão de privacidade.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="cartao" style="margin-top:14px">
+          <h4>Autenticação: o que esta página não faz</h4>
+          <p>Não há tela de login, nem falsa, nem real. Não há sessão, cookie, token ou chamada de
+            autenticação. A frase abaixo vale para o desenho documentado, não para esta página:</p>
+          <p style="margin-top:8px"><em>“Em produção o acesso passa por oauth2-proxy à frente do
+            Service”</em> — arquitetura documentada, <strong>não executada aqui</strong>.</p>
+          <div class="botoes" style="margin-top:10px" id="referencias-aut"></div>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>English summary</h3>
+        <div class="ingles">
+          <h4>What this is</h4>
+          <p>A static, self-contained demonstration of a fiscal document automation product: search
+            and retrieval of tax documents stored in a corporate file repository, an extraction
+            pipeline (discovery → ingestion → extraction → schema validation → publication → human
+            review), and the SRE layer around it (SLIs, error budget, burn-rate alerting,
+            Kubernetes manifests, GitOps).</p>
+          <p>The original customer code cannot be published, so this repository publishes the
+            <em>design</em> plus <strong>synthetic data</strong>. Companies, documents, traces,
+            logs, metrics and incidents are generated by <code>tools/gen_data.py</code> from a fixed
+            seed (20260124) and are reproducible byte for byte. No real client, employer, domain,
+            IP address, tax identifier or credential appears anywhere; a CI check
+            (<code>tools/leak_check.py</code>) enforces that.</p>
+          <p>Stack shown: React + FastAPI + MongoDB in the original case, evolving to containers,
+            managed Kubernetes, an ingress plus oauth2-proxy at the edge, decoupled extraction
+            workers, OpenTelemetry with Prometheus, Alertmanager, Loki, Tempo and Grafana, and Argo
+            CD for GitOps. Everything is open source; the page itself has zero third-party
+            dependencies and works offline.</p>
+          <p>The demo runs without authentication. Scale figures are labelled as an illustrative
+            order of magnitude, never measurements. If you want to talk about the real case, the
+            links below are the way to reach me.</p>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <h3>Onde olhar o trabalho de verdade</h3>
+        <div class="botoes" id="links-autor"></div>
+        <p class="nota-pequena" style="margin-top:12px">Código desta demonstração: HTML, CSS e
+          JavaScript próprios, nesta raiz de repositório. O serviço que publica a página usa o
+          caminho versionado <code>jraalves.github.io/automacao/</code> — explicação em três linhas
+          no <a href="README.md">README</a>.</p>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         07 — CORRELAÇÃO (destino de um X-Request-Id clicável)
+         ==================================================================== -->
+    <section class="vista" id="vista-correlacao" role="tabpanel" hidden>
+      <div class="titulo-vista">
+        <h2>Correlação: request → trace → logs</h2>
+        <p class="sub">Você chegou aqui clicando em um <code>X-Request-Id</code>. É o mesmo gesto que
+          se faz num Grafana real: sair de uma linha da tabela e chegar ao trace e aos logs daquele
+          pedido. Aqui, com dados sintéticos.</p>
+      </div>
+      <div id="correlacao-conteudo">
+        <div class="painel"><div class="corpo"><p class="vazio">Nenhum identificador informado.
+          Volte para a <a href="#/busca">Busca fiscal</a> e clique em um <code>X-Request-Id</code>.</p></div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="rodape">
+    <span id="rodape-info">Demonstração pessoal com dados sintéticos. Nenhum dado de cliente.</span>
+    <span id="rodape-links">
+      <a href="https://github.com/jraalves" rel="noopener noreferrer">github.com/jraalves</a> ·
+      <a href="README.md">README</a> ·
+      <a href="SECURITY.md">SECURITY</a> ·
+      <a href="LICENSE">MIT</a> ·
+      <a href="data/AVISO-SINTETICO.md">aviso de dados sintéticos</a>
+    </span>
+  </footer>
+
+  <div class="toast" id="toasts" role="region" aria-live="polite" aria-label="Avisos da interface"></div>
+
+  <!-- Fallback obrigatório para uso via file://: define window.DEMO_DATA. -->
+  <script src="data/dados.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

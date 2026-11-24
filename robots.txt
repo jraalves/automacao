@@ -1,0 +1,11 @@
+# robots.txt da demonstração publicada em jraalves.github.io/automacao
+# Site estático, uma página com navegação por hash: nada aqui precisa ser
+# escondido do índice, e não existe área logada, API de busca interna ou
+# parâmetro de sessão.
+User-agent: *
+Allow: /
+
+# Páginas geradas por script e arquivos de texto-fonte (YAML, JSON, Markdown)
+# são publicados de propósito: eles são o desenho documentado da demonstração.
+# Sem sitemap: são duas URLs (index.html e 404.html, esta última com
+# noindex no próprio HTML).

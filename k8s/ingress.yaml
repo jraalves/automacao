@@ -1,0 +1,64 @@
+# Demonstração — Ingress da borda.
+#
+# Host FICTÍCIO: automacao-demo.example.com. Não existe ambiente real por trás
+# deste site; o arquivo documenta o desenho de produção.
+#
+#   kubectl apply -f k8s/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: automacao-demo
+  namespace: automacao-demo
+  labels:
+    app.kubernetes.io/name: automacao-demo
+    app.kubernetes.io/part-of: automacao-fiscal
+  annotations:
+    # TLS termina na borda: o backend conversa só em texto plano dentro do
+    # cluster, onde a NetworkPolicy restringe quem pode chegar.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Rate limit defensivo: a busca é barata; se alguém varrer o catálogo a
+    # 100 req/s, o limite protege o Mongo e os workers.
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    # Cabeçalhos de segurança aplicados na borda, não no código da aplicação.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header Referrer-Policy "same-origin" always;
+      add_header X-Frame-Options "SAMEORIGIN" always;
+    # O proxy de autenticação responde 401/302; não queremos que o Ingress
+    # reescreva isso.
+    nginx.ingress.kubernetes.io/proxy-next-upstream: "error timeout http_502"
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - automacao-demo.example.com
+      # Nome de Secret comum no cluster; o Secret em si fica em outro manifest
+      # (e nunca é commitado — veja secret-template.yaml e k8s/README.md).
+      secretName: automacao-demo-tls
+  rules:
+    - host: automacao-demo.example.com
+      http:
+        paths:
+          # Tudo passa pelo oauth2-proxy, inclusive a UI e a API. A rota do
+          # callback do provedor de identidade precisa vir antes da rota "".
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: oauth2-proxy
+                port:
+                  number: 4180
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oauth2-proxy
+                port:
+                  number: 4180
+---
+# Backend privado do Ingress: a API só é alcançada pelo proxy, nunca direto.
+# Service automacao-api (ClusterIP) está em service-api.yaml.

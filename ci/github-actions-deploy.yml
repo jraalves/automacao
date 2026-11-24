@@ -1,0 +1,122 @@
+# Publicação da demonstração em GitHub Pages.
+#
+# Duas decisões que este arquivo precisa sustentar:
+#   1. o site é estático: HTML, CSS, JS e um JSON versionado. Não há npm, não há
+#      yarn, não há bundler, não há etapa de compilação. O artefato publicado é a
+#      própria árvore do repositório, menos o .git.
+#   2. o endereço é jraalves.github.io/automacao (caminho do repositório), e não a
+#      raiz de um domínio de usuário: por isso não existe CNAME aqui, e o Pages do
+#      projeto resolve o prefixo /automacao/ sozinho.
+#
+# O job de qualidade não usa segredo nenhum; o de publicação usa apenas o token
+# efêmero que o próprio GitHub concede ao environment github-pages.
+name: publicar demonstração
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  qualidade:
+    name: qualidade da demonstração
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: sem manifesto de dependência nem arquivo de domínio próprio
+        run: |
+          set -euo pipefail
+          falha=0
+          for arquivo in package.json package-lock.json yarn.lock pnpm-lock.yaml \
+                         requirements.txt pyproject.toml setup.py CNAME _config.yml \
+                         .nojekyll; do
+            if [ -e "$arquivo" ]; then
+              echo "::error::$arquivo não deveria existir: a publicação é de arquivos crus."
+              falha=1
+            fi
+          done
+          if [ "$(find . -name node_modules -o -name dist -o -name build -type d | wc -l)" -gt 0 ]; then
+            echo "::error::há diretório de artefato de compilação versionado."
+            falha=1
+          fi
+          exit "$falha"
+
+      - name: as ferramentas compilam
+        run: python3 -m py_compile tools/gen_data.py tools/leak_check.py tools/validate.py
+
+      - name: os dados são reproduzíveis byte a byte
+        run: python3 tools/gen_data.py --check
+
+      - name: validação estrutural do repositório
+        run: python3 tools/validate.py --verbose
+
+      - name: varredura anti-vazamento
+        run: python3 tools/leak_check.py
+
+      - name: javascript próprio sem erro de sintaxe
+        run: |
+          node --check app.js
+          node --check data/dados.js
+          node --check tools/teste_render.js
+
+      - name: as seis vistas montam com o DOM falso
+        run: node tools/teste_render.js
+
+      - name: nenhum recurso remoto na interface
+        run: |
+          set -euo pipefail
+          if grep -nE '<(script|link)[^>]+(src|href)="https?://' index.html \
+             | grep -v 'rel="canonical"' | grep -v 'preconnect'; then
+            echo "::error::index.html referencia recurso remoto."
+            exit 1
+          fi
+          if grep -nE '@import|url\(["'"'"']?https?://' styles.css; then
+            echo "::error::styles.css busca recurso remoto."
+            exit 1
+          fi
+
+  publicar:
+    name: publicar em GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: qualidade
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.publicar.outputs.page_url }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      # O caminho "." é intencional: a demonstração expõe os arquivos do desenho
+      # (README, ADRs, manifests, regras, painel) como parte do site, e os links
+      # internos dependem disso.
+      - name: artefato estático
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "."
+
+      - name: publicar
+        id: publicar
+        uses: actions/deploy-pages@v1

@@ -12,6 +12,11 @@ fiscal, **recontados com dados sintéticos**. Site publicado:
 
 > consome um JSON gerado por script e não faz nenhuma chamada de rede.
 
+> **Estado do deploy:** este repositório é a fonte; o site é servido pelo GitHub Pages a partir
+> da branch `main` na raiz. Se a URL abaixo responder 404, o Pages ainda está desligado neste
+> repositório — ligar é Settings → Pages → *Deploy from a branch* → `main` / `(root)` → Save
+> (ou rodar o workflow de `ci/github-actions-deploy.yml`).
+
 ## O endereço: por que `jraalves.github.io/automacao` e não `automacao.github.io`
 
 1. No GitHub Pages, a forma raiz do domínio pertence à conta que tem aquele nome
@@ -165,7 +170,7 @@ ela mostra o trace e os logs daquele pedido, como se faz num Grafana.
 ├── img/
 │   ├── favicon.svg             ícone da página
 │   └── demo-card.svg           imagem de compartilhamento (1200×630)
-└── .github/workflows/deploy.yml qualidade + publicação em GitHub Pages
+└── ci/github-actions-deploy.yml  qualidade + publicação em GitHub Pages
 
 ```
 
@@ -214,7 +219,9 @@ não existe no arquivo. O detalhe está em
 
 ## Publicação
 
-`.github/workflows/deploy.yml` tem dois jobs e nenhum segredo:
+`ci/github-actions-deploy.yml` é a definição completa do deploy: dois jobs, nenhum segredo.
+Para ativar, copie para `.github/workflows/deploy.yml` (a integração usada nesta publicação
+não tinha permissão para escrever `.github/`, por isso o YAML está versionado aqui):
 
 1. **qualidade** — `tools/gen_data.py --check`, `py_compile` nas ferramentas,
 

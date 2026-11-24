@@ -12,10 +12,10 @@ fiscal, **recontados com dados sintéticos**. Site publicado:
 
 > consome um JSON gerado por script e não faz nenhuma chamada de rede.
 
-> **Estado do deploy:** este repositório é a fonte; o site é servido pelo GitHub Pages a partir
-> da branch `main` na raiz. Se a URL abaixo responder 404, o Pages ainda está desligado neste
-> repositório — ligar é Settings → Pages → *Deploy from a branch* → `main` / `(root)` → Save
-> (ou rodar o workflow de `ci/github-actions-deploy.yml`).
+> **Estado do deploy:** publicado. GitHub Pages servindo a branch `main` na raiz, com HTTPS
+> obrigatório: <https://jraalves.github.io/automacao/> (status `built`). A publicação é a que
+> está em `ci/github-actions-deploy.yml`; para trocar por deploy via workflow, é só copiar o
+> arquivo para `.github/workflows/` — nenhum segredo é necessário.
 
 ## O endereço: por que `jraalves.github.io/automacao` e não `automacao.github.io`
 
